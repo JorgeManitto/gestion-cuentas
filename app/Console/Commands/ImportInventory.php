@@ -100,20 +100,29 @@ class ImportInventory extends Command
         $accounts = json_decode(file_get_contents("$path/accounts.json"), true);
         $this->info("Importando " . count($accounts) . " cuentas (con llaves y asignaciones)…");
         $bar = $this->output->createProgressBar(count($accounts));
-        $stats = ['accounts' => 0, 'keys' => 0, 'assignments' => 0, 'skipped' => 0];
+        $stats = ['accounts' => 0, 'keys' => 0, 'assignments' => 0, 'skipped' => 0, 'sin_juego' => 0];
 
         DB::transaction(function () use ($accounts, $slugToId, $bar, &$stats) {
             foreach ($accounts as $a) {
-                $gameId = $slugToId[$a['game_slug']] ?? null;
-                if (! $gameId) {
+                // Solo cuentas de tipo INDEPENDIENTE
+                if ($this->mapType($a['account_type']) !== 'INDEPENDIENTE') {
                     $stats['skipped']++;
                     $bar->advance();
                     continue;
                 }
 
+                // game_id puede venir null (cuenta sin juego o sin match auto).
+                // Antes la salteábamos; ahora la importamos igual con game_id = null.
+                $slug   = $a['game_slug'] ?? null;
+                $gameId = $slug !== null ? ($slugToId[$slug] ?? null) : null;
+                if (! $gameId) {
+                    $stats['sin_juego']++;
+                }
+
                 $account = Account::create([
-                    'game_id'         => $gameId,
+                    'game_id'         => $gameId,           // nullable
                     'platform'        => $this->mapPlatform($a['platform']),
+                    'is_dual'         => $this->isDual($a['platform']),
                     'account_type'    => $this->mapType($a['account_type']),
                     'region'          => $a['region'] ?? 'OTRO',
                     'email'           => $a['email'] ?? 'sin-email@desconocido.local',
@@ -147,6 +156,7 @@ class ImportInventory extends Command
                     $assignRows = array_map(fn($x) => [
                         'account_id'     => $account->id,
                         'slot_number'    => $x['slot_number'],
+                        'platform' => $x['platform'],
                         'customer_name'  => $x['customer_name'],
                         'customer_email' => $x['customer_email'],
                         'assigned_at'    => $x['assigned_at'],
@@ -169,19 +179,29 @@ class ImportInventory extends Command
             ['games',               count($slugToId)],
             ['woo_products',        count($products)],
             ['accounts',            $stats['accounts']],
+            ['  └ sin juego',       $stats['sin_juego']],
             ['account_keys',        $stats['keys']],
             ['account_assignments', $stats['assignments']],
-            ['cuentas salteadas',   $stats['skipped']],
+            ['cuentas salteadas (no INDEPENDIENTE)', $stats['skipped']],
         ]);
 
         return self::SUCCESS;
     }
 
-    /** Normaliza valores raros del xlsx al enum de la migración. */
-    private function mapPlatform(?string $p): string
+    /** Detecta si la cuenta es DUAL (todo lo que no sea PS4/PS5 se trata como DUAL). */
+    private function isDual(?string $p): bool
     {
         $p = strtoupper(trim($p ?? ''));
-        return in_array($p, ['DUAL', 'PS5', 'PS4'], true) ? $p : 'DUAL';
+        return ! in_array($p, ['PS5', 'PS4'], true);
+    }
+
+    /** Normaliza la plataforma: las cuentas DUAL se guardan como PS4. */
+    private function mapPlatform(?string $p): string
+    {
+        if ($this->isDual($p)) {
+            return 'PS4';
+        }
+        return strtoupper(trim($p));
     }
 
     private function mapType(?string $t): string

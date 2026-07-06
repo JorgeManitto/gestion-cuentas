@@ -17,7 +17,10 @@ class PurchaseOrder extends Model
         'quantity',
         'status',
         'notes',
+        'notes_region',
         'arrival_date',
+        'type',
+        'account_id',
     ];
 
     protected $casts = [
@@ -49,5 +52,15 @@ class PurchaseOrder extends Model
             'cancelled' => 'zinc',
             default     => 'zinc',
         };
+    }
+    public function isReset(): bool
+    {
+        return $this->type === 'reset';
+    }
+
+    // ── NUEVO ──
+    public function account(): BelongsTo
+    {
+        return $this->belongsTo(Account::class);
     }
 }

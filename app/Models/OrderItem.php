@@ -16,15 +16,24 @@ class OrderItem extends Model
         'console_model_raw',
         'platform_normalized',
         'quantity',
+        'price',
+        'price_sale',
+        'is_preorden',
+        'is_pack',
         'account_id',
         'activation_key',
         'who_delivered',
         'delivery_date',
         'fulfillment_status',
+        'replaced_by_item_id',
     ];
 
     protected $casts = [
         'delivery_date' => 'datetime',
+        'price'         => 'decimal:2',
+        'price_sale'    => 'decimal:2',
+        'is_preorden'   => 'boolean',
+        'is_pack'       => 'boolean',
     ];
 
     public function order(): BelongsTo
@@ -60,15 +69,36 @@ class OrderItem extends Model
             ->first();
     }
 
+    public function replacedBy(): BelongsTo
+    {
+        return $this->belongsTo(OrderItem::class, 'replaced_by_item_id');
+    }
+
+    public function replacements(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(OrderItem::class, 'replaced_by_item_id');
+    }
+
     public function fulfillmentColor(): string
     {
         return match ($this->fulfillment_status) {
             'pending'     => 'amber',
             'in_progress' => 'blue',
             'delivered'   => 'emerald',
+            'replaced'    => 'zinc',   // ← nuevo
             'cancelled'   => 'zinc',
             'failed'      => 'red',
             default       => 'zinc',
         };
     }
+    public function assignment(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(AccountAssignment::class);
+    }
+
+    public function secondaryAssignments(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(AccountSecondaryAssignment::class, 'order_item_id');
+    }
+    
 }

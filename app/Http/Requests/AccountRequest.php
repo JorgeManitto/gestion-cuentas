@@ -15,9 +15,17 @@ class AccountRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'game_id'           => ['required', 'exists:games,id'],
-            'parent_account_id' => ['nullable', 'exists:accounts,id'],
+            // 'game_id'           => ['required', 'exists:games,id'],
+            'game_id'           => ['nullable','exists:games,id'],
+            // 'parent_account_id' => [
+            //     'nullable',
+            //     'integer',
+            //     Rule::exists('accounts', 'id'),
+            //     // evita que una cuenta sea madre de sí misma (en update)
+            //     Rule::notIn(array_filter([$this->route('account')?->id])),
+            // ],
             'platform'          => ['required', 'string', 'max:24'],
+            'is_dual'           => ['boolean'],
             'account_type'      => ['required', Rule::in(['INDEPENDIENTE', 'MADRE', 'HIJA'])],
             'region'            => ['required', 'string', 'max:32'],
 
@@ -31,6 +39,7 @@ class AccountRequest extends FormRequest
             'reset_date'        => ['nullable', 'date'],
 
             'gamer_tag'         => ['nullable', 'string', 'max:255'],
+            'full_name'         => 'nullable|string|max:255',
             'birth_date'        => ['nullable', 'date'],
 
             'status'            => ['required', Rule::in(['active', 'blocked', 'reset', 'archived'])],
@@ -41,6 +50,13 @@ class AccountRequest extends FormRequest
             'keys.*.id'         => ['nullable', 'integer', 'exists:account_keys,id'],
             'keys.*.position'   => ['required_with:keys.*.value', 'integer', 'min:1', 'max:20'],
             'keys.*.value'      => ['required_with:keys.*.position', 'string', 'max:64'],
+
+            'is_membership'              => 'boolean',
+            'membership_duration_months' => 'nullable|required_if:is_membership,1|in:3,6,12',
+
+            'parent_account_id' => ['nullable', 'exists:accounts,id', Rule::requiredIf(fn () => $this->account_type === 'HIJA')],
+            'children_ids'      => ['nullable', 'array'],
+            'children_ids.*'    => ['exists:accounts,id'],
         ];
     }
 
@@ -67,6 +83,9 @@ class AccountRequest extends FormRequest
                 ->values()
                 ->all();
             $this->merge(['keys' => $keys]);
+        }
+        if (! $this->boolean('is_membership')) {
+            $this->merge(['membership_duration_months' => null]);
         }
     }
 }

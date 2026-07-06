@@ -123,4 +123,9 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    'woo' => [
+        'base_url'        => env('WOO_BASE_URL', 'https://playxdigital.com'),
+        'secret'          => env('WOO_API_SECRET'),
+        'complete_status' => env('WOO_COMPLETE_STATUS', 'completed'),
+    ],
 ];

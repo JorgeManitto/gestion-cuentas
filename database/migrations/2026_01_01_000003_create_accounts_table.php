@@ -26,6 +26,7 @@ return new class extends Migration
             // string en vez de enum: cuando agregues XBOX_ONE / SWITCH / STEAM
             // no hace falta migration nueva, solo importás cuentas y listo.
             $table->string('platform', 24)->index();
+            $table->boolean('is_dual')->default(false)->index();
             $table->enum('account_type', ['INDEPENDIENTE', 'MADRE', 'HIJA'])->index();
             $table->string('region', 32)->index();   // USA, BRASIL, TURKIA, INDIA, etc.
 

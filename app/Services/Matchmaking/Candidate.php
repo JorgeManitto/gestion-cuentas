@@ -24,18 +24,18 @@ readonly class Candidate
     ) {}
 
     /** Para mostrar en la UI: "3 cupos libres (1/4) · 8 llaves · comprada 14/03/2026" */
-    public static function buildSelectionReason(Account $account, int $remaining): string
+   public static function buildSelectionReason(Account $account, int $remaining, string $platform): string
     {
-        $used     = $account->capacity() - $remaining;
-        $capacity = $account->capacity();
+        $capacity = $account->capacityFor($platform);   // ← por consola, no total
+        $used     = $capacity - $remaining;
         $keys     = $account->relationLoaded('keys')
             ? $account->keys->count()
             : $account->keys()->count();
 
         $parts = [];
-        $parts[] = "$remaining cupo" . ($remaining === 1 ? '' : 's')
-                 . " libre" . ($remaining === 1 ? '' : 's')
-                 . " ($used/$capacity)";
+        $parts[] = "$platform: $remaining cupo" . ($remaining === 1 ? '' : 's')
+                . " libre" . ($remaining === 1 ? '' : 's')
+                . " ($used/$capacity)";
         $parts[] = "$keys llave" . ($keys === 1 ? '' : 's');
 
         if ($account->isPostReset()) {

@@ -43,4 +43,34 @@ class GameController extends Controller
             ],
         ]);
     }
+    public function index(Request $request)
+    {
+        $search = trim((string) $request->input('q', ''));
+
+        $games = Game::query()
+            ->with(['products' => fn ($q) => $q->orderBy('name')])
+            ->withCount(['products', 'accounts'])
+            ->when($search !== '', function ($q) use ($search) {
+                $q->where(function ($qq) use ($search) {
+                    $qq->where('canonical_name', 'like', "%{$search}%")
+                       ->orWhere('normalized_name', 'like', "%{$search}%")
+                       ->orWhere('slug', 'like', "%{$search}%");
+                });
+            })
+            ->orderBy('canonical_name')
+            ->paginate(24)
+            ->withQueryString();
+
+        return view('games.index', compact('games', 'search'));
+    }
+
+    public function show(Game $game)
+    {
+        $game->load([
+            'products' => fn ($q) => $q->orderBy('platform')->orderBy('name'),
+            'accounts',
+        ]);
+
+        return view('games.show', compact('game'));
+    }
 }

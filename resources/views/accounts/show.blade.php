@@ -16,6 +16,14 @@
     $activeAssignments  = $account->assignments->where('status', 'active')->sortBy('slot_number');
     $historyAssignments = $account->assignments->whereIn('status', ['expired', 'revoked'])
                                               ->sortByDesc('updated_at');
+
+    $activeSecondaryAssignments = $account->secondaryAssignments
+    ->where('status', 'active')
+    ->sortBy([['platform', 'asc'], ['slot_number', 'asc']]);
+
+    $secondaryHistoryAssignments = $account->secondaryAssignments
+    ->whereIn('status', ['expired', 'revoked'])
+    ->sortByDesc('updated_at');                                              
 @endphp
 
 {{-- HEADER --}}
@@ -93,16 +101,23 @@
             @if ($account->gamer_tag)
                 <div class="text-xs text-zinc-500 font-mono mt-1">{{ $account->gamer_tag }}</div>
             @endif
+            @if ($account->full_name)
+                <div class="text-xs text-zinc-500 mt-1">{{ $account->full_name }}</div>
+            @endif
         </div>
 
         <div class="rounded-lg border border-zinc-200 bg-white p-5 space-y-3">
             <div>
                 <div class="text-xs font-medium uppercase tracking-wide text-zinc-500 mb-1">Juego</div>
                 <div class="font-medium">
-                    @if ($account->game)
-                        {{ $account->game->canonical_name }}
-                    @else
-                        <span class="text-zinc-400">—</span>
+                    @if ($wooProduct)
+                        {{ $wooProduct->name }}
+                        @else
+                            @if ($account->game)
+                                {{ $account->game->canonical_name }} canonical_name
+                            @else
+                                <span class="text-zinc-400">—</span>
+                            @endif
                     @endif
                 </div>
             </div>
@@ -128,23 +143,35 @@
         </div>
 
         @if ($account->parent || $account->children->isNotEmpty())
-            <div class="rounded-lg border border-zinc-200 bg-white p-5 space-y-2">
+            <div class="rounded-lg border border-zinc-200 bg-white p-5 space-y-3">
                 <div class="text-xs font-medium uppercase tracking-wide text-zinc-500">Jerarquía</div>
+
                 @if ($account->parent)
-                    <div class="text-sm">
-                        Madre:
+                    <div>
+                        <div class="text-xs text-zinc-500 mb-1">Cuenta madre</div>
                         <a href="{{ route('accounts.show', $account->parent) }}"
-                           class="font-mono text-xs hover:underline">{{ $account->parent->email }}</a>
+                        class="flex items-center justify-between gap-2 rounded-md border border-zinc-200 px-3 py-2 hover:bg-zinc-50 transition">
+                            <span class="font-mono text-xs break-all">{{ $account->parent->email }}</span>
+                            <span class="font-mono text-[10px] uppercase px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-600 shrink-0">
+                                {{ $account->parent->platform }}
+                            </span>
+                        </a>
                     </div>
                 @endif
+
                 @if ($account->children->isNotEmpty())
-                    <div class="text-sm">
-                        Hijas: {{ $account->children->count() }}
-                        <ul class="mt-1 space-y-0.5">
+                    <div>
+                        <div class="text-xs text-zinc-500 mb-1">Cuentas hijas · {{ $account->children->count() }}</div>
+                        <ul class="space-y-1">
                             @foreach ($account->children as $child)
                                 <li>
                                     <a href="{{ route('accounts.show', $child) }}"
-                                       class="font-mono text-xs hover:underline">{{ $child->email }}</a>
+                                    class="flex items-center justify-between gap-2 rounded-md border border-zinc-200 px-3 py-2 hover:bg-zinc-50 transition">
+                                        <span class="font-mono text-xs break-all">{{ $child->email }}</span>
+                                        <span class="font-mono text-[10px] uppercase px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-600 shrink-0">
+                                            {{ $child->platform }}
+                                        </span>
+                                    </a>
                                 </li>
                             @endforeach
                         </ul>
@@ -175,15 +202,26 @@
                 @endif
             </div>
 
-            {{-- BOTÓN RESETEAR --}}
-            <form method="POST" action="{{ route('accounts.reset', $account) }}"
-                  onsubmit="return confirm('¿RESETEAR la cuenta {{ $account->email }}?\n\nEsto va a:\n  · marcar como expiradas las {{ $activeAssignments->count() }} asignación(es) activa(s)\n  · reducir la capacidad a {{ $account->maxAfterReset() }} slots\n\nLas asignaciones quedan en el historial pero los slots se liberan.');">
-                @csrf
-                <button type="submit"
+            @if ($account->canReset())
+                <button type="button" onclick="openResetModal()"
                         class="w-full rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700">
                     ⟲ Resetear cuenta
                 </button>
-            </form>
+            @else
+                <button type="button" disabled
+                        class="w-full rounded-md bg-amber-600/40 px-3 py-1.5 text-sm font-medium text-white cursor-not-allowed"
+                        title="Disponible el {{ $account->resetCooldownUntil()->format('Y-m-d') }}">
+                    ⟲ Resetear cuenta
+                </button>
+                <div class="text-xs text-zinc-500 mt-1">
+                    {{ $account->reset_date ? 'Reset bloqueado' : 'Bloqueado desde la compra' }} ·
+                    disponible el
+                    <span class="font-mono">{{ $account->resetCooldownUntil()->format('Y-m-d') }}</span>
+                </div>
+            @endif
+            @error('reset')
+                <div class="text-xs text-red-600 mt-1">{{ $message }}</div>
+            @enderror
 
             @if ($account->isTimeBlocked())
                 <div class="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs">
@@ -260,29 +298,80 @@
                         @endif
                     </div>
                 </div>
+                <div class="flex gap-2 mt-1">
+                    @foreach ($usageByPlatform as $plat => $u)
+                        <span class="inline-flex items-center gap-1.5 rounded-md bg-zinc-100 px-2 py-0.5 text-xs font-mono">
+                            <span class="font-medium">{{ $plat }}</span>
+                            {{ $u['used'] }}/{{ $u['capacity'] }}
+                            @if ($u['free'] > 0)
+                                <span class="text-emerald-600">· {{ $u['free'] }} libre</span>
+                            @endif
+                        </span>
+                    @endforeach
+                </div>
 
                 {{-- BOTONES DE USO MANUAL --}}
-                <div class="flex gap-1">
-                    <form method="POST" action="{{ route('accounts.usage.decrement', $account) }}"
-                          onsubmit="return confirm('¿Liberar el placeholder más reciente?\n\nNo borra asignaciones con datos de cliente reales.');">
-                        @csrf
-                        <button type="submit"
-                                class="rounded-md bg-white px-2 py-1 text-xs font-medium text-zinc-700 ring-1 ring-inset ring-zinc-300 hover:bg-zinc-100"
-                                {{ $activeAssignments->whereNull('customer_name')->whereNull('customer_email')->isEmpty() ? 'disabled' : '' }}
-                                title="Libera el placeholder más reciente (sin datos de cliente)">
-                            −1 uso
-                        </button>
-                    </form>
-                    <form method="POST" action="{{ route('accounts.usage.increment', $account) }}"
-                          onsubmit="return confirm('¿Agregar 1 uso manual (placeholder en próximo slot libre)?');">
-                        @csrf
-                        <button type="submit"
-                                class="rounded-md bg-zinc-900 px-2 py-1 text-xs font-medium text-white hover:bg-zinc-700"
-                                {{ $account->freeSlots() <= 0 ? 'disabled' : '' }}>
-                            +1 uso
-                        </button>
-                    </form>
-                </div>
+                @if ($account->canPickUsagePlatform())
+                    {{-- PS dual: un par de botones por consola --}}
+                    <div class="flex flex-col gap-1">
+                        @foreach ($account->coveredPlatforms() as $plat)
+                            @php
+                                $platFree        = $account->freeSlotsFor($plat);
+                                $platPlaceholder = $activeAssignments
+                                    ->where('platform', $plat)
+                                    ->whereNull('customer_name')
+                                    ->whereNull('customer_email')
+                                    ->isNotEmpty();
+                            @endphp
+                            <div class="flex items-center gap-1">
+                                <span class="w-12 text-right font-mono text-xs font-medium">{{ $plat }}</span>
+                                <form method="POST" action="{{ route('accounts.usage.decrement', $account) }}"
+                                    onsubmit="return confirm('¿Liberar el placeholder más reciente de {{ $plat }}?');">
+                                    @csrf
+                                    <input type="hidden" name="platform" value="{{ $plat }}">
+                                    <button type="submit"
+                                            class="rounded-md bg-white px-2 py-1 text-xs font-medium text-zinc-700 ring-1 ring-inset ring-zinc-300 hover:bg-zinc-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                                            {{ ! $platPlaceholder ? 'disabled' : '' }}>
+                                        −1
+                                    </button>
+                                </form>
+                                <form method="POST" action="{{ route('accounts.usage.increment', $account) }}"
+                                    onsubmit="return confirm('¿Agregar 1 uso manual en {{ $plat }}?');">
+                                    @csrf
+                                    <input type="hidden" name="platform" value="{{ $plat }}">
+                                    <button type="submit"
+                                            class="rounded-md bg-zinc-900 px-2 py-1 text-xs font-medium text-white hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                                            {{ $platFree <= 0 ? 'disabled' : '' }}>
+                                        +1
+                                    </button>
+                                </form>
+                            </div>
+                        @endforeach
+                    </div>
+                @else
+                    {{-- Resto de consolas: botón único (comportamiento actual) --}}
+                    <div class="flex gap-1">
+                        <form method="POST" action="{{ route('accounts.usage.decrement', $account) }}"
+                            onsubmit="return confirm('¿Liberar el placeholder más reciente?\n\nNo borra asignaciones con datos de cliente reales.');">
+                            @csrf
+                            <button type="submit"
+                                    class="rounded-md bg-white px-2 py-1 text-xs font-medium text-zinc-700 ring-1 ring-inset ring-zinc-300 hover:bg-zinc-100"
+                                    {{ $activeAssignments->whereNull('customer_name')->whereNull('customer_email')->isEmpty() ? 'disabled' : '' }}
+                                    title="Libera el placeholder más reciente (sin datos de cliente)">
+                                −1 uso
+                            </button>
+                        </form>
+                        <form method="POST" action="{{ route('accounts.usage.increment', $account) }}"
+                            onsubmit="return confirm('¿Agregar 1 uso manual (placeholder en próximo slot libre)?');">
+                            @csrf
+                            <button type="submit"
+                                    class="rounded-md bg-zinc-900 px-2 py-1 text-xs font-medium text-white hover:bg-zinc-700"
+                                    {{ $account->freeSlots() <= 0 ? 'disabled' : '' }}>
+                                +1 uso
+                            </button>
+                        </form>
+                    </div>
+                @endif
             </div>
 
             @if ($activeAssignments->isEmpty())
@@ -296,6 +385,8 @@
                             <th class="px-4 py-2 text-left font-medium">Email</th>
                             <th class="px-4 py-2 text-left font-medium">Asignada</th>
                             <th class="px-4 py-2 text-left font-medium">Order</th>
+                            <th class="px-4 py-2 text-left font-medium">Llave</th>
+                            <th class="px-4 py-2 text-left font-medium">Acciones</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-zinc-100">
@@ -321,12 +412,178 @@
                                         —
                                     @endif
                                 </td>
+                                <td class="px-4 py-2 font-mono text-xs">
+                                    {{ $as->key_value ?? '—' }}
+                                    @if ($as->key_position)
+                                        <span class="text-zinc-400">#{{ $as->key_position }}</span>
+                                    @endif
+                                </td>
+                                <td class="px-4 py-2">
+                                    <div class="flex gap-1">
+                                        <form method="POST" action="{{ route('accounts.assignments.status', [$account, $as]) }}"
+                                            onsubmit="return confirm('¿Marcar el slot #{{ $as->slot_number }} ({{ $as->platform }}) como EXPIRADA?');">
+                                            @csrf
+                                            <input type="hidden" name="status" value="expired">
+                                            <button type="submit"
+                                                    class="rounded-md bg-white px-2 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-300 hover:bg-amber-50">
+                                                Expirar
+                                            </button>
+                                        </form>
+                                        <form method="POST" action="{{ route('accounts.assignments.status', [$account, $as]) }}"
+                                            onsubmit="return confirm('¿Marcar el slot #{{ $as->slot_number }} ({{ $as->platform }}) como REVOCADA?');">
+                                            @csrf
+                                            <input type="hidden" name="status" value="revoked">
+                                            <button type="submit"
+                                                    class="rounded-md bg-white px-2 py-1 text-xs font-medium text-red-700 ring-1 ring-inset ring-red-300 hover:bg-red-50">
+                                                Revocar
+                                            </button>
+                                        </form>
+                                    </div>
+                                </td>
                             </tr>
                         @endforeach
                     </tbody>
                 </table>
             @endif
         </div>
+
+        @include('accounts._secondary-usage', [
+            'account' => $account,
+            'secondaryUsageByPlatform' => $secondaryUsageByPlatform,
+        ])
+
+        {{-- ── ASIGNACIONES SECUNDARIAS ACTIVAS ── --}}
+        <div class="rounded-lg border border-zinc-200 bg-white">
+            <div class="border-b border-zinc-200 px-5 py-3 flex items-center justify-between">
+                <div class="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Asignaciones secundarias activas
+                </div>
+                <span class="text-xs text-zinc-500">{{ $activeSecondaryAssignments->count() }} activa(s)</span>
+            </div>
+
+            @if ($activeSecondaryAssignments->isEmpty())
+                <div class="px-5 py-6 text-center text-sm text-zinc-500">Sin asignaciones secundarias activas.</div>
+            @else
+                <table class="min-w-full text-sm">
+                    <thead class="bg-zinc-50 text-xs uppercase tracking-wide text-zinc-600">
+                        <tr>
+                            <th class="px-4 py-2 text-left font-medium">Slot</th>
+                            <th class="px-4 py-2 text-left font-medium">Plataforma</th>
+                            <th class="px-4 py-2 text-left font-medium">Cliente</th>
+                            <th class="px-4 py-2 text-left font-medium">Email</th>
+                            <th class="px-4 py-2 text-left font-medium">Asignada</th>
+                            <th class="px-4 py-2 text-left font-medium">Order</th>
+                            <th class="px-4 py-2 text-left font-medium">Llave</th>
+                            <th class="px-4 py-2 text-left font-medium">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-zinc-100">
+                        @foreach ($activeSecondaryAssignments as $as)
+                            @php
+                                $isPlaceholder = ! $as->customer_name && ! $as->customer_email;
+                            @endphp
+                            <tr class="{{ $isPlaceholder ? 'bg-amber-50/40' : '' }}">
+                                <td class="px-4 py-2 font-mono text-xs">#{{ $as->slot_number }}</td>
+                                <td class="px-4 py-2 font-mono text-xs">{{ $as->platform }}</td>
+                                <td class="px-4 py-2">
+                                    @if ($isPlaceholder)
+                                        <span class="text-xs italic text-amber-700">ocupado · sin info</span>
+                                    @else
+                                        {{ $as->customer_name ?? '—' }}
+                                    @endif
+                                </td>
+                                <td class="px-4 py-2 font-mono text-xs">{{ $as->customer_email ?? '—' }}</td>
+                                <td class="px-4 py-2 font-mono text-xs text-zinc-500">{{ $as->assigned_at?->format('Y-m-d') ?? '—' }}</td>
+                                <td class="px-4 py-2 font-mono text-xs">{{ $as->woo_order_id ? '#' . $as->woo_order_id : '—' }}</td>
+                                <td class="px-4 py-2 font-mono text-xs">
+                                    {{ $as->key_value ?? '—' }}
+                                    @if ($as->key_position)
+                                        <span class="text-zinc-400">#{{ $as->key_position }}</span>
+                                    @endif
+                                </td>
+                                <td class="px-4 py-2">
+                                    <div class="flex gap-1">
+                                        <form method="POST" action="{{ route('accounts.secondary-assignments.status', [$account, $as]) }}"
+                                            onsubmit="return confirm('¿Marcar el slot secundario #{{ $as->slot_number }} ({{ $as->platform }}) como EXPIRADA?');">
+                                            @csrf
+                                            <input type="hidden" name="status" value="expired">
+                                            <button type="submit"
+                                                    class="rounded-md bg-white px-2 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-300 hover:bg-amber-50">
+                                                Expirar
+                                            </button>
+                                        </form>
+                                        <form method="POST" action="{{ route('accounts.secondary-assignments.status', [$account, $as]) }}"
+                                            onsubmit="return confirm('¿Marcar el slot secundario #{{ $as->slot_number }} ({{ $as->platform }}) como REVOCADA?');">
+                                            @csrf
+                                            <input type="hidden" name="status" value="revoked">
+                                            <button type="submit"
+                                                    class="rounded-md bg-white px-2 py-1 text-xs font-medium text-red-700 ring-1 ring-inset ring-red-300 hover:bg-red-50">
+                                                Revocar
+                                            </button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            @endif
+        </div>
+
+        {{-- ── HISTORIAL SECUNDARIO (expired + revoked) ── --}}
+        @if ($secondaryHistoryAssignments->isNotEmpty())
+            <div class="rounded-lg border border-zinc-200 bg-white">
+                <div class="border-b border-zinc-200 px-5 py-3 flex items-center justify-between">
+                    <div class="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                        Historial de activaciones secundarias
+                    </div>
+                    <span class="text-xs text-zinc-500">{{ $secondaryHistoryAssignments->count() }} entrada(s)</span>
+                </div>
+                <table class="min-w-full text-sm">
+                    <thead class="bg-zinc-50 text-xs uppercase tracking-wide text-zinc-600">
+                        <tr>
+                            <th class="px-4 py-2 text-left font-medium">Slot</th>
+                            <th class="px-4 py-2 text-left font-medium">Plataforma</th>
+                            <th class="px-4 py-2 text-left font-medium">Cliente</th>
+                            <th class="px-4 py-2 text-left font-medium">Email</th>
+                            <th class="px-4 py-2 text-left font-medium">Asignada</th>
+                            <th class="px-4 py-2 text-left font-medium">Estado</th>
+                            <th class="px-4 py-2 text-left font-medium">Cerrada</th>
+                            <th class="px-4 py-2 text-left font-medium">Order</th>
+                            <th class="px-4 py-2 text-left font-medium">Llave</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-zinc-100">
+                        @foreach ($secondaryHistoryAssignments as $as)
+                            @php
+                                $statusBadgeColor = $as->status === 'expired' ? 'amber' : 'red';
+                            @endphp
+                            <tr class="text-zinc-500">
+                                <td class="px-4 py-2 font-mono text-xs">#{{ $as->slot_number }}</td>
+                                <td class="px-4 py-2 font-mono text-xs">{{ $as->platform }}</td>
+                                <td class="px-4 py-2 line-through">{{ $as->customer_name ?? '—' }}</td>
+                                <td class="px-4 py-2 font-mono text-xs line-through">{{ $as->customer_email ?? '—' }}</td>
+                                <td class="px-4 py-2 font-mono text-xs">{{ $as->assigned_at?->format('Y-m-d') ?? '—' }}</td>
+                                <td class="px-4 py-2">
+                                    <span class="inline-flex items-center gap-1 rounded-full bg-{{ $statusBadgeColor }}-50 px-1.5 py-0.5 text-xs font-medium text-{{ $statusBadgeColor }}-700 ring-1 ring-inset ring-{{ $statusBadgeColor }}-600/20">
+                                        {{ $as->status }}
+                                    </span>
+                                </td>
+                                <td class="px-4 py-2 font-mono text-xs">{{ $as->updated_at?->format('Y-m-d') ?? '—' }}</td>
+                                <td class="px-4 py-2 font-mono text-xs">{{ $as->woo_order_id ? '#' . $as->woo_order_id : '—' }}</td>
+                                <td class="px-4 py-2 font-mono text-xs">
+                                    {{ $as->key_value ?? '—' }}
+                                    @if ($as->key_position)
+                                        <span class="text-zinc-400">#{{ $as->key_position }}</span>
+                                    @endif
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+            
+        @endif
 
         {{-- ── HISTORIAL (expired + revoked) ── --}}
         @if ($historyAssignments->isNotEmpty())
@@ -437,6 +694,59 @@
     </div>
 </div>
 
+{{-- ════════ MODAL RESET ════════ --}}
+@php $nextKey = $account->nextAvailableKey(); @endphp
+<div id="reset-modal" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-zinc-900/50" onclick="closeResetModal()"></div>
+
+    <div class="absolute inset-0 flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md" onclick="event.stopPropagation()">
+            <form method="POST" action="{{ route('accounts.reset', $account) }}">
+                @csrf
+                <input type="hidden" name="key_id" value="{{ $nextKey?->id }}">
+
+                <div class="px-6 py-4 border-b border-zinc-200">
+                    <h3 class="text-lg font-semibold">Resetear cuenta en la plataforma</h3>
+                    <p class="text-xs text-zinc-500 font-mono mt-1">{{ $account->email }}</p>
+                </div>
+
+                <div class="px-6 py-4 space-y-4 text-sm">
+                    <p class="text-zinc-500">
+                        Ingresá a la plataforma con estos datos y realizá el reset manualmente.
+                        La llave que se muestra se consumirá al confirmar.
+                    </p>
+
+                    <div class="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-xs space-y-1">
+                        <div><span class="text-zinc-400">Email:</span> {{ $account->email }}</div>
+                        <div><span class="text-zinc-400">Password:</span> {{ $account->password ?? '—' }}</div>
+                        <div>
+                            <span class="text-zinc-400">Llave:</span>
+                            @if ($nextKey)
+                                {{ $nextKey->key_value }} <span class="text-zinc-400">#{{ $nextKey->position }}</span>
+                            @else
+                                <span class="text-amber-600">sin llave disponible</span>
+                            @endif
+                        </div>
+                    </div>
+
+                    <p class="font-medium">¿Ya realizaste el reseteo en la plataforma?</p>
+                </div>
+
+                <div class="px-6 py-3 border-t border-zinc-200 flex justify-end gap-2">
+                    <button type="button" onclick="closeResetModal()"
+                            class="rounded-md bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 ring-1 ring-inset ring-zinc-300 hover:bg-zinc-100">
+                        Cancelar
+                    </button>
+                    <button type="submit"
+                            class="rounded-md bg-amber-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-amber-700">
+                        Sí, ya reseteé
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <script>
     function openDisableModal() {
         document.getElementById('disable-modal').classList.remove('hidden');
@@ -449,6 +759,19 @@
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && !document.getElementById('disable-modal').classList.contains('hidden')) {
             closeDisableModal();
+        }
+    });
+    function openResetModal() {
+        document.getElementById('reset-modal').classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+    }
+    function closeResetModal() {
+        document.getElementById('reset-modal').classList.add('hidden');
+        document.body.style.overflow = '';
+    }
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            if (!document.getElementById('reset-modal').classList.contains('hidden')) closeResetModal();
         }
     });
 </script>

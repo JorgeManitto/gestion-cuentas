@@ -2,19 +2,75 @@
 @section('title', 'Compras')
 
 @section('content')
+<style>
+    .fld-label {
+        display: block;
+        font-size: .8125rem;
+        font-weight: 500;
+        color: rgb(63 63 70);
+        margin-bottom: .375rem;
+    }
+    .fld-input,
+    .fld-select,
+    .fld-textarea {
+        width: 100%;
+        border-radius: .5rem;
+        border: 1px solid rgb(212 212 216);
+        background-color: #fff;
+        padding: .5rem .75rem;
+        font-size: .875rem;
+        line-height: 1.25rem;
+        color: rgb(24 24 27);
+        box-shadow: 0 1px 2px 0 rgb(0 0 0 / .04);
+        transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+    }
+    .fld-input::placeholder,
+    .fld-textarea::placeholder { color: rgb(161 161 170); }
+
+    .fld-input:hover:not(:focus),
+    .fld-select:hover:not(:focus),
+    .fld-textarea:hover:not(:focus) { border-color: rgb(161 161 170); }
+
+    .fld-input:focus,
+    .fld-select:focus,
+    .fld-textarea:focus {
+        outline: none;
+        border-color: rgb(16 185 129);
+        box-shadow: 0 0 0 3px rgb(16 185 129 / .18);
+    }
+    .fld-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+    .fld-select {
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%2371717a'%3E%3Cpath fill-rule='evenodd' d='M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z' clip-rule='evenodd'/%3E%3C/svg%3E");
+        background-position: right .55rem center;
+        background-repeat: no-repeat;
+        background-size: 1.1em;
+        padding-right: 2.25rem;
+    }
+
+    .fld-check {
+        height: 1rem; width: 1rem;
+        border-radius: .25rem;
+        border: 1px solid rgb(212 212 216);
+        color: rgb(5 150 105);
+        cursor: pointer;
+    }
+    .fld-check:focus { box-shadow: 0 0 0 3px rgb(16 185 129 / .25); }
+</style>
 <div class="space-y-6">
     <div>
         <h1 class="text-2xl font-bold text-zinc-900">Compras</h1>
         <p class="text-zinc-600">Gestiona Órdenes de Compra y Stock de Cuentas</p>
 
         {{-- Tabs --}}
-        <div class="mt-4 flex flex-wrap gap-2 border-b border-zinc-200 pb-3">
+        <div class="mt-4 inline-flex gap-1 rounded-lg border border-zinc-200 bg-zinc-50 p-1">
             <a href="{{ route('purchase-orders.index', ['tab' => 'ordenes']) }}"
-               class="px-4 py-2 rounded-md text-sm font-medium {{ $tab === 'ordenes' ? 'bg-zinc-900 text-white' : 'bg-white border border-zinc-200 text-zinc-700 hover:bg-zinc-50' }}">
+            class="px-4 py-1.5 rounded-md text-sm font-medium transition {{ $tab === 'ordenes' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-600 hover:text-zinc-900' }}">
                 Órdenes de Compra
             </a>
             <a href="{{ route('purchase-orders.index', ['tab' => 'stock']) }}"
-               class="px-4 py-2 rounded-md text-sm font-medium {{ $tab === 'stock' ? 'bg-zinc-900 text-white' : 'bg-white border border-zinc-200 text-zinc-700 hover:bg-zinc-50' }}">
+            class="px-4 py-1.5 rounded-md text-sm font-medium transition {{ $tab === 'stock' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-600 hover:text-zinc-900' }}">
                 Stock de Cuentas
             </a>
         </div>
@@ -33,387 +89,178 @@
     @endif
 
     @if ($tab === 'ordenes')
-        {{-- ==================== TAB: ÓRDENES ==================== --}}
-
-        {{-- Stats --}}
-        <div class="grid grid-cols-3 gap-3">
-            @foreach ([
-                'pending'   => ['Pendientes',   'amber'],
-                'purchased' => ['Compradas',    'blue'],
-                'received'  => ['Recibidas',    'emerald'],
-            ] as $key => [$label, $color])
-                <a href="{{ route('purchase-orders.index', ['tab' => 'ordenes', 'status' => $key]) }}"
-                   class="block rounded-lg border border-zinc-200 bg-white p-4 hover:border-zinc-300 transition">
-                    <div class="flex items-center justify-between">
-                        <span class="text-xs font-medium uppercase tracking-wide text-zinc-500">{{ $label }}</span>
-                        <span class="h-2 w-2 rounded-full bg-{{ $color }}-500"></span>
-                    </div>
-                    <div class="mt-2 font-mono text-2xl font-semibold">{{ $stats[$key] }}</div>
-                </a>
-            @endforeach
-        </div>
-
-        {{-- Toolbar --}}
-        <div class="flex justify-end">
-            <button type="button" onclick="document.getElementById('modal-create-po').showModal()"
-                    class="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800">
-                + Agregar orden
-            </button>
-        </div>
-
-        {{-- Tabla --}}
-        <div class="overflow-x-auto rounded-lg border border-zinc-200 bg-white">
-            <table class="min-w-full text-sm">
-                <thead class="bg-zinc-50 border-b border-zinc-200 text-xs uppercase tracking-wide text-zinc-600">
-                    <tr>
-                        <th class="px-4 py-2 text-left font-medium">OC</th>
-                        <th class="px-4 py-2 text-left font-medium">Juego</th>
-                        <th class="px-4 py-2 text-left font-medium">Plataforma</th>
-                        <th class="px-4 py-2 text-left font-medium">Cant.</th>
-                        <th class="px-4 py-2 text-left font-medium">Origen</th>
-                        <th class="px-4 py-2 text-left font-medium">Status</th>
-                        <th class="px-4 py-2 text-left font-medium">Creada</th>
-                        <th class="px-4 py-2 text-left font-medium">Llegada</th>
-                        <th class="px-4 py-2 text-right font-medium">Acciones</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-zinc-100">
-                    @forelse ($orders as $po)
-                        @php
-                            // Portada: 1) game.cover_image_url (WooProduct vía relación)
-                            //         2) lookup por title en WooProduct (cargado en el controller)
-                            //         3) placeholder
-                            $cover = $po->cover_image_url
-                                ?? ($coversByTitle[$po->game_title] ?? null)
-                                ?? asset('images/default-game-gray.svg');
-                        @endphp
-                        <tr class="hover:bg-zinc-50">
-                            <td class="px-4 py-2.5 font-mono text-xs">#{{ $po->id }}</td>
-                            <td class="px-4 py-2.5">
-                                <div class="flex items-center gap-3">
-                                    <button type="button"
-                                            onclick="openPreview('{{ e($cover) }}', '{{ e($po->game_title) }}')"
-                                            class="block h-14 w-10 shrink-0 overflow-hidden rounded border bg-zinc-100 hover:opacity-80 transition">
-                                        <img src="{{ $cover }}" alt="{{ $po->game_title }}"
-                                             class="h-full w-full object-cover" loading="lazy">
-                                    </button>
-                                    <div class="min-w-0">
-                                        <div class="font-medium max-w-[260px] truncate">{{ $po->game_title }}</div>
-                                        @if ($po->game)
-                                            <div class="text-xs text-zinc-500 truncate">→ {{ $po->game->canonical_name }}</div>
-                                        @endif
-                                    </div>
-                                </div>
-                            </td>
-                            <td class="px-4 py-2.5">
-                                <span class="font-mono text-xs px-1.5 py-0.5 rounded bg-zinc-100">{{ $po->platform }}</span>
-                                @if ($po->console_model)
-                                    <div class="text-xs text-zinc-500 mt-0.5 font-mono">{{ $po->console_model }}</div>
-                                @endif
-                                @if ($po->region && $po->region !== 'sin especificar')
-                                    <div class="text-xs text-zinc-500 mt-0.5">{{ $po->region }}</div>
-                                @endif
-                            </td>
-                            <td class="px-4 py-2.5 font-mono text-xs">{{ $po->quantity }}</td>
-                            <td class="px-4 py-2.5">
-                                @if ($po->orderItem)
-                                    <a href="{{ route('orders.show', $po->orderItem->order_id) }}"
-                                       class="text-xs font-mono hover:underline">
-                                        Order #{{ $po->orderItem->order->wc_order_id }}
-                                    </a>
-                                @else
-                                    <span class="text-xs text-zinc-400">manual</span>
-                                @endif
-                            </td>
-                            <td class="px-4 py-2.5">
-                                @php $color = $po->statusColor(); @endphp
-                                <span class="inline-flex items-center gap-1.5 rounded-full bg-{{ $color }}-50 px-2 py-0.5 text-xs font-medium text-{{ $color }}-700 ring-1 ring-inset ring-{{ $color }}-600/20">
-                                    <span class="h-1.5 w-1.5 rounded-full bg-{{ $color }}-500"></span>
-                                    {{ $po->status }}
-                                </span>
-                            </td>
-                            <td class="px-4 py-2.5 font-mono text-xs text-zinc-500">{{ $po->created_at->format('Y-m-d') }}</td>
-                            <td class="px-4 py-2.5 font-mono text-xs text-zinc-500">{{ $po->arrival_date?->format('Y-m-d') ?? '—' }}</td>
-                            <td class="px-4 py-2.5">
-                                <div class="flex items-center justify-end gap-1">
-                                    @if ($po->status !== 'received')
-                                        @php
-                                            $poData = [
-                                                'id'         => $po->id,
-                                                'game_title' => $po->game_title,
-                                                'platform'   => $po->platform,
-                                                'region'     => $po->region,
-                                            ];
-                                        @endphp
-                                        <button type="button"
-                                                onclick='openComplete(@json($poData))'
-                                                title="Completar con cuenta de stock"
-                                                class="inline-flex items-center justify-center h-8 w-8 rounded-md bg-zinc-900 text-white hover:bg-zinc-800">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.27 6.96 12 12.01l8.73-5.05M12 22.08V12"/></svg>
-                                        </button>
-                                    @endif
-                                    <form method="POST" action="{{ route('purchase-orders.destroy', $po) }}"
-                                          onsubmit="return confirm('¿Eliminar la OC #{{ $po->id }}? Esta acción no se puede deshacer.')">
-                                        @csrf @method('DELETE')
-                                        <button type="submit" title="Eliminar"
-                                                class="inline-flex items-center justify-center h-8 w-8 rounded-md bg-red-600 text-white hover:bg-red-700">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
-                                        </button>
-                                    </form>
-                                </div>
-                            </td>
-                        </tr>
-                    @empty
-                        <tr>
-                            <td colspan="9" class="px-4 py-12 text-center text-zinc-500">
-                                No hay órdenes de compra. Se generan automáticamente cuando un item no tiene stock disponible.
-                            </td>
-                        </tr>
-                    @endforelse
-                </tbody>
-            </table>
-        </div>
-
-        <div class="mt-4">{{ $orders->links() }}</div>
-
+        @include('purchase-orders.partials.tab-ordenes')
     @else
-        {{-- ==================== TAB: STOCK ==================== --}}
-        <div class="rounded-lg border border-zinc-200 bg-white p-4">
-            <p class="text-sm text-zinc-600 mb-4">Cuentas sin juego vinculado. Ordenadas por región.</p>
-
-            <form method="GET" action="{{ route('purchase-orders.index') }}" class="flex flex-wrap gap-2 mb-4">
-                <input type="hidden" name="tab" value="stock">
-                <input type="text" name="q" value="{{ request('q') }}" placeholder="Buscar por email, región…"
-                       class="rounded-md border-zinc-300 text-sm px-3 py-1.5 w-64">
-                <select name="platform" class="rounded-md border-zinc-300 text-sm px-3 py-1.5">
-                    <option value="all">Todas las consolas</option>
-                    @foreach (['DUAL','PS4','PS5','XBOX_ONE','XBOX_SERIES','SWITCH','SWITCH_2','STEAM'] as $p)
-                        <option value="{{ $p }}" @selected(request('platform') === $p)>{{ $p }}</option>
-                    @endforeach
-                </select>
-                <select name="region" class="rounded-md border-zinc-300 text-sm px-3 py-1.5">
-                    <option value="all">Todas las regiones</option>
-                    @foreach ($uniqueRegions as $r)
-                        <option value="{{ $r }}" @selected(request('region') === $r)>{{ $r }}</option>
-                    @endforeach
-                </select>
-                <button type="submit" class="rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-zinc-800">
-                    Filtrar
-                </button>
-            </form>
-
-            <div class="overflow-x-auto rounded-lg border border-zinc-200">
-                <table class="min-w-full text-sm">
-                    <thead class="bg-zinc-50 border-b border-zinc-200 text-xs uppercase tracking-wide text-zinc-600">
-                        <tr>
-                            <th class="px-4 py-2 text-left font-medium">Email</th>
-                            <th class="px-4 py-2 text-left font-medium">Plataforma</th>
-                            <th class="px-4 py-2 text-left font-medium">Región</th>
-                            <th class="px-4 py-2 text-left font-medium">Estado</th>
-                            <th class="px-4 py-2 text-left font-medium">Comprada</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-zinc-100">
-                        @forelse ($stockAccounts as $acc)
-                            <tr class="hover:bg-zinc-50">
-                                <td class="px-4 py-2.5 font-medium">{{ $acc->email }}</td>
-                                <td class="px-4 py-2.5 font-mono text-xs">{{ $acc->platform }}</td>
-                                <td class="px-4 py-2.5">{{ $acc->region ?? '—' }}</td>
-                                <td class="px-4 py-2.5">
-                                    <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium
-                                        @class([
-                                            'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20' => $acc->status === 'active',
-                                            'bg-zinc-100 text-zinc-700' => $acc->status !== 'active',
-                                        ])">
-                                        {{ $acc->status }}
-                                    </span>
-                                </td>
-                                <td class="px-4 py-2.5 font-mono text-xs text-zinc-500">
-                                    {{ $acc->purchased_date?->format('Y-m-d') ?? '—' }}
-                                </td>
-                            </tr>
-                        @empty
-                            <tr>
-                                <td colspan="5" class="px-4 py-12 text-center text-zinc-500">
-                                    No hay cuentas sin juego con los filtros aplicados.
-                                </td>
-                            </tr>
-                        @endforelse
-                    </tbody>
-                </table>
-            </div>
-        </div>
+        @include('purchase-orders.partials.tab-stock')
     @endif
 </div>
 
-{{-- ==================== MODAL: CREAR OC ==================== --}}
-<dialog id="modal-create-po" class="rounded-lg p-0 backdrop:bg-black/40 w-full max-w-md">
-    <form method="POST" action="{{ route('purchase-orders.store') }}" class="p-5 space-y-4">
-        @csrf
-        <div class="flex items-center justify-between">
-            <h2 class="text-lg font-semibold">Nueva Orden de Compra</h2>
-            <button type="button" onclick="document.getElementById('modal-create-po').close()"
-                    class="text-zinc-500 hover:text-zinc-700">✕</button>
-        </div>
+{{-- ==================== MODALES ==================== --}}
+@include('purchase-orders.partials.modals.stock-detail')
+@include('purchase-orders.partials.modals.create-po')
+@include('purchase-orders.partials.modals.complete-po')
+@include('purchase-orders.partials.modals.preview')
+@include('purchase-orders.partials.modals.create-stock')
+@include('purchase-orders.partials.modals.game-picker')
 
-        <div class="space-y-1.5 relative">
-            <label class="text-sm font-medium">Título del juego</label>
-            <input type="text" name="game_title" id="po-game-title" required autocomplete="off"
-                   placeholder="Ej: God of War Ragnarok"
-                   class="w-full rounded-md border-zinc-300 text-sm px-3 py-1.5"
-                   oninput="filterGames(this.value)">
-            <input type="hidden" name="game_id" id="po-game-id">
-            <div id="po-game-suggestions"
-                 class="absolute z-50 left-0 right-0 mt-1 max-h-48 overflow-auto rounded-md border bg-white shadow-md hidden"></div>
-        </div>
-
-        <div class="space-y-1.5">
-            <label class="text-sm font-medium">Plataforma</label>
-            <select name="platform" required class="w-full rounded-md border-zinc-300 text-sm px-3 py-1.5">
-                <option value="">Selecciona…</option>
-                <option value="DUAL">DUAL (PS4+PS5)</option>
-                <option value="PS5">PS5</option>
-                <option value="PS4">PS4</option>
-                <option value="XBOX_SERIES">Xbox Series</option>
-                <option value="XBOX_ONE">Xbox One</option>
-                <option value="SWITCH_2">Switch 2</option>
-                <option value="SWITCH">Switch</option>
-                <option value="STEAM">Steam / PC</option>
-            </select>
-        </div>
-
-        <div class="space-y-1.5">
-            <label class="text-sm font-medium">Región <span class="text-zinc-400 font-normal">(opcional)</span></label>
-            <select name="region" class="w-full rounded-md border-zinc-300 text-sm px-3 py-1.5">
-                <option value="">—</option>
-                @foreach (['HONG KONG','BRASIL','USA','ESPAÑA','UK','TURQUIA','INDIA','ARG','CAN'] as $r)
-                    <option value="{{ $r }}">{{ $r }}</option>
-                @endforeach
-            </select>
-        </div>
-
-        <div class="grid grid-cols-2 gap-3">
-            <div class="space-y-1.5">
-                <label class="text-sm font-medium">Cantidad</label>
-                <input type="number" name="quantity" min="1" value="1" required
-                       class="w-full rounded-md border-zinc-300 text-sm px-3 py-1.5">
-            </div>
-            <div class="space-y-1.5">
-                <label class="text-sm font-medium">Fecha llegada</label>
-                <input type="date" name="arrival_date" class="w-full rounded-md border-zinc-300 text-sm px-3 py-1.5">
-            </div>
-        </div>
-
-        <div class="flex justify-end gap-2 pt-2">
-            <button type="button" onclick="document.getElementById('modal-create-po').close()"
-                    class="rounded-md border border-zinc-300 px-4 py-1.5 text-sm font-medium hover:bg-zinc-50">
-                Cancelar
-            </button>
-            <button type="submit" class="rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-zinc-800">
-                Crear
-            </button>
-        </div>
-    </form>
-</dialog>
-
-{{-- ==================== MODAL: COMPLETAR OC ==================== --}}
-<dialog id="modal-complete-po" class="rounded-lg p-0 backdrop:bg-black/40 w-full max-w-lg">
-    <form method="POST" id="form-complete-po" class="p-5 space-y-4">
-        @csrf
-        <div class="flex items-center justify-between">
-            <h2 class="text-lg font-semibold">Completar orden</h2>
-            <button type="button" onclick="document.getElementById('modal-complete-po').close()"
-                    class="text-zinc-500 hover:text-zinc-700">✕</button>
-        </div>
-
-        <div id="complete-po-info" class="text-sm text-zinc-600 rounded-md bg-zinc-50 px-3 py-2"></div>
-
-        <div class="space-y-1.5">
-            <label class="text-sm font-medium">Cuenta de Stock</label>
-            <select name="account_id" required class="w-full rounded-md border-zinc-300 text-sm px-3 py-1.5">
-                <option value="">Selecciona una cuenta…</option>
-                @foreach ($stockForComplete as $acc)
-                    <option value="{{ $acc->id }}" data-platform="{{ $acc->platform }}">
-                        {{ $acc->email }} — {{ $acc->platform }}{{ $acc->region ? ' / ' . $acc->region : '' }}
-                    </option>
-                @endforeach
-            </select>
-            <p class="text-xs text-zinc-500">Solo se muestran cuentas activas sin juego asignado.</p>
-        </div>
-
-        <div class="grid grid-cols-2 gap-3">
-            <div class="space-y-1.5">
-                <label class="text-sm font-medium">Fecha de compra</label>
-                <input type="date" name="purchase_date" required value="{{ now()->format('Y-m-d') }}"
-                       class="w-full rounded-md border-zinc-300 text-sm px-3 py-1.5">
-            </div>
-            <div class="space-y-1.5">
-                <label class="text-sm font-medium">Monto USD <span class="text-zinc-400 font-normal">(opc.)</span></label>
-                <input type="number" name="cost_usd" step="0.01" min="0"
-                       class="w-full rounded-md border-zinc-300 text-sm px-3 py-1.5">
-            </div>
-        </div>
-
-        <div class="flex justify-end gap-2 pt-2">
-            <button type="button" onclick="document.getElementById('modal-complete-po').close()"
-                    class="rounded-md border border-zinc-300 px-4 py-1.5 text-sm font-medium hover:bg-zinc-50">
-                Cancelar
-            </button>
-            <button type="submit" class="rounded-md bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-emerald-700">
-                Completar
-            </button>
-        </div>
-    </form>
-</dialog>
-
-{{-- ==================== MODAL: PREVIEW IMAGEN ==================== --}}
-<dialog id="modal-preview" class="rounded-lg p-0 backdrop:bg-black/70 bg-transparent">
-    <button type="button" onclick="document.getElementById('modal-preview').close()"
-            class="absolute top-2 right-2 z-10 text-white bg-black/50 rounded-full h-8 w-8 flex items-center justify-center">✕</button>
-    <img id="preview-img" src="" alt="" class="max-h-[80vh] w-auto rounded-md">
-</dialog>
-
-@php
-    $gamesPayload = $gamesCatalog->map(fn ($g) => [
-        'id'    => $g->id,
-        'name'  => $g->canonical_name,
-        'cover' => $g->cover_image_url,
-    ])->values();
-@endphp
 <script>
-    // Catálogo de juegos (id + canonical_name + cover) para autocompletar
-    const GAMES = @json($gamesPayload);
+/* ─────────── GAME PICKER (mismo endpoint que accounts) ─────────── */
+const gamePicker = {
+    page: 1,
+    lastPage: 1,
+    search: '',
+    debounceTimer: null,
+    url: @json(route('woo-products.picker')),
+};
 
-    function filterGames(query) {
-        const box = document.getElementById('po-game-suggestions');
-        const q = query.trim().toLowerCase();
-        document.getElementById('po-game-id').value = ''; // si cambia el texto, deselecciona
-        if (q.length < 2) { box.classList.add('hidden'); return; }
-        const matches = GAMES.filter(g => g.name.toLowerCase().includes(q)).slice(0, 8);
-        if (matches.length === 0) { box.classList.add('hidden'); return; }
-        box.innerHTML = matches.map(g => `
-            <button type="button"
-                    class="w-full text-left px-3 py-2 text-sm hover:bg-zinc-50 border-b last:border-b-0 flex items-center gap-2"
-                    onclick="selectGame(${g.id}, ${JSON.stringify(g.name)})">
-                ${g.cover ? `<img src="${g.cover}" class="h-8 w-6 object-cover rounded">` : '<div class="h-8 w-6 bg-zinc-100 rounded"></div>'}
-                <span class="truncate">${g.name}</span>
-            </button>
-        `).join('');
-        box.classList.remove('hidden');
-    }
+function openGamePicker() {
+    gamePicker.page = 1;
+    gamePicker.search = '';
+    document.getElementById('gp-search').value = '';
+    document.getElementById('modal-game-picker').showModal();
+    loadGamePickerPage();
+    setTimeout(() => document.getElementById('gp-search').focus(), 50);
+}
 
-    function selectGame(id, name) {
-        document.getElementById('po-game-title').value = name;
-        document.getElementById('po-game-id').value = id;
-        document.getElementById('po-game-suggestions').classList.add('hidden');
-    }
+function closeGamePicker() {
+    document.getElementById('modal-game-picker').close();
+}
 
-    // Cerrar sugerencias al click fuera
-    document.addEventListener('click', (e) => {
-        if (!e.target.closest('#po-game-title') && !e.target.closest('#po-game-suggestions')) {
-            document.getElementById('po-game-suggestions')?.classList.add('hidden');
+function changeGamePickerPage(delta) {
+    const newPage = gamePicker.page + delta;
+    if (newPage < 1 || newPage > gamePicker.lastPage) return;
+    gamePicker.page = newPage;
+    loadGamePickerPage();
+}
+
+document.getElementById('gp-search').addEventListener('input', (e) => {
+    gamePicker.search = e.target.value;
+    gamePicker.page = 1;
+    clearTimeout(gamePicker.debounceTimer);
+    gamePicker.debounceTimer = setTimeout(loadGamePickerPage, 250);
+});
+
+async function loadGamePickerPage() {
+    const grid = document.getElementById('gp-grid');
+    const loading = document.getElementById('gp-loading');
+    const empty = document.getElementById('gp-empty');
+
+    grid.innerHTML = '';
+    empty.classList.add('hidden');
+    loading.classList.remove('hidden');
+
+    const params = new URLSearchParams({ page: gamePicker.page, search: gamePicker.search });
+
+    try {
+        const res = await fetch(`${gamePicker.url}?${params}`, { headers: { 'Accept': 'application/json' } });
+        const json = await res.json();
+
+        loading.classList.add('hidden');
+        gamePicker.lastPage = json.meta.last_page;
+
+        if (json.data.length === 0) {
+            empty.classList.remove('hidden');
+        } else {
+            json.data.forEach(p => grid.appendChild(renderProductCard(p)));
         }
+
+        document.getElementById('gp-count').textContent = `${json.meta.total} productos`;
+        document.getElementById('gp-page').textContent = `${json.meta.current_page} / ${json.meta.last_page}`;
+        document.getElementById('gp-prev').disabled = gamePicker.page <= 1;
+        document.getElementById('gp-next').disabled = gamePicker.page >= gamePicker.lastPage;
+    } catch (err) {
+        loading.classList.add('hidden');
+        empty.classList.remove('hidden');
+        empty.textContent = 'Error al cargar juegos. Reintentá.';
+    }
+}
+
+function esc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+}
+
+function renderProductCard(product) {
+    const card = document.createElement('div');
+    card.className = 'rounded-lg border border-zinc-200 bg-white p-3 flex flex-col hover:border-zinc-400 transition';
+
+    const cover = product.image_url
+        ? `<img src="${esc(product.image_url)}" alt="" class="w-full aspect-[3/4] object-cover rounded bg-zinc-100" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'w-full aspect-[3/4] rounded bg-zinc-100 flex items-center justify-center text-zinc-400 text-xs',textContent:'sin imagen'}))">`
+        : `<div class="w-full aspect-[3/4] rounded bg-zinc-100 flex items-center justify-center text-zinc-400 text-xs">sin imagen</div>`;
+
+    const platformBadge = product.platform
+        ? `<span class="inline-block mt-1 text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-600">${esc(product.platform)}</span>`
+        : '';
+
+    card.innerHTML = `
+        ${cover}
+        <div class="mt-2 flex-1">
+            <div class="text-xs font-medium line-clamp-2 leading-tight" title="${esc(product.name)}">${esc(product.name)}</div>
+            ${platformBadge}
+        </div>
+        <button type="button"
+                data-game-id="${esc(product.game_id)}"
+                data-platform="${esc(product.platform || '')}"
+                data-name="${esc(product.name)}"
+                data-cover="${esc(product.image_url || '')}"
+                class="product-pick-btn mt-2 w-full rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium px-2 py-1.5">
+            Seleccionar
+        </button>
+    `;
+    card.querySelector('.product-pick-btn').addEventListener('click', (e) => {
+        const b = e.currentTarget.dataset;
+        selectProduct(b.gameId, b.name, b.platform, b.cover);
     });
+    return card;
+}
+
+function selectProduct(gameId, name, platform, cover) {
+    // game_id es nullable|exists en el controller: si el producto no tiene juego, lo dejamos vacío
+    document.getElementById('po-game-id').value = (gameId && gameId !== 'null') ? gameId : '';
+    document.getElementById('po-game-title').value = name;
+
+    if (platform) {
+        const select = document.getElementById('po-platform');
+        const dual = document.getElementById('po-is-dual');
+        const up = platform.toUpperCase();
+
+        if (up === 'DUAL') {
+            // Producto marcado como DUAL: dejamos la plataforma para que el operador la elija
+            // y marcamos el flag. (DUAL ya no es una plataforma en sí.)
+            dual.checked = true;
+        } else {
+            const match = Array.from(select.options).find(o => o.value.toUpperCase() === up);
+            if (match) select.value = match.value;
+            dual.checked = false;
+        }
+    }
+
+    const display = document.getElementById('po-selected-game-display');
+    const coverHtml = cover
+        ? `<img src="${esc(cover)}" alt="" class="w-12 h-16 object-cover rounded shrink-0 bg-zinc-100" onerror="this.style.display='none'">`
+        : `<div class="w-12 h-16 rounded bg-zinc-100 shrink-0"></div>`;
+    display.innerHTML = `
+        <div class="flex items-center gap-3 p-2 rounded-md border border-zinc-200">
+            ${coverHtml}
+            <div class="flex-1 min-w-0">
+                <div class="text-sm font-medium truncate">${esc(name)}</div>
+                <div class="text-xs text-zinc-500 font-mono">${esc(platform || '')}${(gameId && gameId !== 'null') ? ' · juego #' + esc(gameId) : ''}</div>
+            </div>
+        </div>
+    `;
+    closeGamePicker();
+}
+
+/* Guard: evitar enviar sin juego seleccionado (game_title es hidden, no lo valida el browser) */
+document.querySelector('#modal-create-po form').addEventListener('submit', (e) => {
+    if (!document.getElementById('po-game-title').value.trim()) {
+        e.preventDefault();
+        alert('Seleccioná un juego antes de crear la orden.');
+    }
+});
+
+    let completePoPlatform = '';
 
     function openComplete(po) {
         const form = document.getElementById('form-complete-po');
@@ -422,22 +269,97 @@
             `OC <strong>#${po.id}</strong> · ${po.game_title} · ${po.platform}` +
             (po.region && po.region !== 'sin especificar' ? ` · ${po.region}` : '');
 
-        // Filtrar el select para que sólo muestre cuentas compatibles con la plataforma de la OC
+        completePoPlatform = (po.platform || '').toUpperCase();
+
+        completePoPlatform = (po.platform || '').toUpperCase();
+
+        // Prellenar plataforma e is_dual con los datos de la OC
+        const platformSelect = document.getElementById('complete-platform');
+        const matchPlatform = Array.from(platformSelect.options)
+            .find(o => o.value.toUpperCase() === completePoPlatform);
+        platformSelect.value = matchPlatform ? matchPlatform.value : '';
+
+        document.getElementById('complete-is-dual').checked = !!po.is_dual;
+
+        // Reset de los filtros al abrir
+        document.getElementById('complete-filter-email').value = '';
+        document.getElementById('complete-filter-region').value = '';
+
+        applyCompleteFilters();
+
         const select = form.querySelector('select[name="account_id"]');
-        const platformPo = (po.platform || '').toUpperCase();
-        Array.from(select.options).forEach(opt => {
-            if (!opt.value) { opt.hidden = false; return; }
-            const accPlatform = (opt.dataset.platform || '').toUpperCase();
-            // PS4/PS5 son compatibles con DUAL, etc. — regla simple: mismo prefijo de plataforma
-            const family = (p) => p.startsWith('PS') || p === 'DUAL' ? 'PS'
-                            : p.startsWith('XBOX') ? 'XBOX'
-                            : p.startsWith('SWITCH') ? 'NIN'
-                            : p;
-            opt.hidden = family(accPlatform) !== family(platformPo);
-        });
         select.value = '';
+        usedPositions = [];
+        document.getElementById('complete-existing-keys').classList.add('hidden');
+        document.getElementById('complete-existing-keys-list').innerHTML = '';
 
         document.getElementById('modal-complete-po').showModal();
+    }
+
+    function applyCompleteFilters() {
+        const select  = document.querySelector('#form-complete-po select[name="account_id"]');
+        const emailQ  = document.getElementById('complete-filter-email').value.trim().toLowerCase();
+        const regionQ = document.getElementById('complete-filter-region').value;
+
+        const family = (p) => p.startsWith('PS') ? 'PS'
+                    : p.startsWith('XBOX') ? 'XBOX'
+                    : p.startsWith('SWITCH') ? 'NIN'
+                    : p;
+
+        Array.from(select.options).forEach(opt => {
+            if (!opt.value) { opt.hidden = false; return; }
+
+            const accPlatform = (opt.dataset.platform || '').toUpperCase();
+            const accRegion   = opt.dataset.region || '';
+            const accEmail    = opt.textContent.toLowerCase();
+
+            const matchPlatform = family(accPlatform) === family(completePoPlatform);
+            const matchEmail    = !emailQ  || accEmail.includes(emailQ);
+            const matchRegion   = !regionQ || accRegion === regionQ;
+
+            opt.hidden = !(matchPlatform && matchEmail && matchRegion);
+        });
+
+        // Si la cuenta seleccionada quedó oculta, deseleccionar y limpiar las llaves
+        if (select.selectedOptions[0] && select.selectedOptions[0].hidden) {
+            select.value = '';
+            renderExistingKeys();
+        }
+    }
+
+    // Listeners de los filtros (se ejecutan al cargar la página, una sola vez)
+    document.getElementById('complete-filter-email').addEventListener('input', applyCompleteFilters);
+    document.getElementById('complete-filter-region').addEventListener('change', applyCompleteFilters);
+
+    let usedPositions = [];
+
+    const completeAccountSelect = document.querySelector('#form-complete-po select[name="account_id"]');
+    completeAccountSelect.addEventListener('change', renderExistingKeys);
+
+    function renderExistingKeys() {
+        const opt   = completeAccountSelect.selectedOptions[0];
+        const panel = document.getElementById('complete-existing-keys');
+        const list  = document.getElementById('complete-existing-keys-list');
+        list.innerHTML = '';
+
+        let keys = [];
+        try { keys = JSON.parse(opt?.dataset.keys || '[]'); } catch { keys = []; }
+
+        if (!opt || !opt.value || keys.length === 0) {
+            panel.classList.add('hidden');
+            usedPositions = [];
+            return;
+        }
+
+        usedPositions = keys.map(k => Number(k.position));
+
+        keys.sort((a, b) => a.position - b.position).forEach(k => {
+            const chip = document.createElement('span');
+            chip.className = 'inline-flex items-center gap-1 rounded bg-white ring-1 ring-inset ring-amber-300 px-1.5 py-0.5 font-mono';
+            chip.textContent = `#${k.position} · ${esc(k.value)}`;
+            list.appendChild(chip);
+        });
+        panel.classList.remove('hidden');
     }
 
     function openPreview(url, title) {
@@ -446,5 +368,89 @@
         img.alt = title;
         document.getElementById('modal-preview').showModal();
     }
+
+    function openStockDetail(acc) {
+        const set = (id, val) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = (val === null || val === undefined || val === '') ? '—' : val;
+        };
+
+        set('sd-email',         acc.email);
+        set('sd-password',      acc.password);
+        set('sd-platform',      acc.platform);
+        set('sd-console',       acc.type_console);
+        set('sd-region',        acc.region);
+        set('sd-type',          acc.account_type);
+        set('sd-dual',          acc.is_dual ? 'Sí' : 'No');
+        set('sd-status',        acc.status);
+        set('sd-gamer-tag',     acc.gamer_tag);
+        set('sd-birth',         acc.birth_date);
+        set('sd-mail-email',    acc.mail_email);
+        set('sd-mail-password', acc.mail_password);
+        set('sd-purchased',     acc.purchased_date);
+        set('sd-notes',         acc.notes);
+
+        // Llaves
+        const wrap  = document.getElementById('sd-keys');
+        const empty = document.getElementById('sd-keys-empty');
+        wrap.innerHTML = '';
+        const keys = acc.keys || [];
+
+        if (keys.length === 0) {
+            empty.classList.remove('hidden');
+        } else {
+            empty.classList.add('hidden');
+            keys.sort((a, b) => a.position - b.position).forEach(k => {
+                const chip = document.createElement('span');
+                chip.className = 'inline-flex items-center gap-1 rounded bg-zinc-100 ring-1 ring-inset ring-zinc-200 px-1.5 py-0.5 font-mono text-xs';
+                chip.textContent = `#${k.position} · ${k.value}`;
+                wrap.appendChild(chip);
+            });
+        }
+
+        document.getElementById('modal-stock-detail').showModal();
+    }
+
+
+    let stockKeyIndex = 0;
+
+    function addStockKey(data = {}) {
+        const tpl = document.getElementById('stock-key-template');
+        const html = tpl.innerHTML.replaceAll('__INDEX__', stockKeyIndex);
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = html;
+        const row = wrapper.firstElementChild;
+
+        if (data.position) row.querySelector('input[name$="[position]"]').value = data.position;
+        if (data.value)    row.querySelector('input[name$="[value]"]').value    = data.value;
+
+        if (!data.position) {
+            const existing  = document.querySelectorAll('#stock-keys-container input[name$="[position]"]');
+            const maxInForm = Array.from(existing).reduce((m, el) => Math.max(m, parseInt(el.value) || 0), 0);
+            row.querySelector('input[name$="[position]"]').value = maxInForm + 1;
+        }
+
+        document.getElementById('stock-keys-container').appendChild(row);
+        stockKeyIndex++;
+    }
+
+    function removeStockKey(btn) {
+        btn.closest('.key-row').remove();
+    }
+
+    function bulkAddStockKeys() {
+        const ta = document.getElementById('stock-keys-bulk');
+        let tokens = ta.value.trim().split(/[\s,;]+/).map(t => t.trim()).filter(Boolean);
+        tokens = [...new Set(tokens)].map(t => t.slice(0, 64));
+        tokens.forEach(value => addStockKey({ value }));
+        ta.value = '';
+    }
+
+    // Quita filas vacías antes de enviar (igual que en complete)
+    document.getElementById('form-create-stock').addEventListener('submit', () => {
+        document.querySelectorAll('#stock-keys-container .key-row').forEach(row => {
+            if (!row.querySelector('input[name$="[value]"]').value.trim()) row.remove();
+        });
+    });
 </script>
 @endsection

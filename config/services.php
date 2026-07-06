@@ -34,5 +34,17 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
+    'woo' => [
+        'base_url'        => env('WOO_BASE_URL', 'https://playxdigital.com'),
+        'secret'          => env('WOO_API_SECRET'),
+        'complete_status' => env('WOO_COMPLETE_STATUS', 'completed'),
+    ],
+    'delivery_mail' => [
+        'support_bcc' => env('DELIVERY_SUPPORT_BCC'),
+        'support_url' => env('DELIVERY_SUPPORT_URL'),
+    ],
+    'pack_api' => [
+        'key' => env('PACK_API_KEY'),
+    ],
 
 ];
