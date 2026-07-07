@@ -595,6 +595,7 @@ class AccountController extends Controller
             ->whereHas('game')
             ->where('status', 'active')
             ->whereIn('platform', ['PS4', 'PS5'])          // secundario solo aplica a PS
+            ->whereHas('keys', fn ($q) => $q->whereNull('used_at'), '>=', 2)  // más de 1 llave disponible
             ->when($request->filled('platform'), fn ($q) => $q->where('platform', $request->platform))
             ->when($request->filled('search'), function ($q) use ($request) {
                 $s = $request->search;

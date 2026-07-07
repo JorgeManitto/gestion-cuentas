@@ -346,7 +346,7 @@ class MatchmakingService
         return Account::query()
             ->where('status', 'active')
             ->whereIn('platform', ['PS4', 'PS5'])
-            ->whereHas('keys', fn ($q) => $q->whereNull('used_at'))
+            ->whereHas('keys', fn ($q) => $q->whereNull('used_at'), '>=', 2)
 
             ->whereDoesntHave('assignments', fn ($q) => $q
                 ->where('status', 'active')
