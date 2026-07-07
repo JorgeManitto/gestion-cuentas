@@ -14,9 +14,6 @@ class PackController extends Controller
 
     public function packCandidates(Request $request): JsonResponse
     {
-        $perPage = 24;
-        $page    = max(1, (int) $request->input('page', 1));
-
         $accounts = $this->matchmaking
             ->secondaryCandidatesQuery($request->input('search'))
             ->with(['game.products', 'assignments', 'secondaryAssignments'])
@@ -47,19 +44,10 @@ class PackController extends Controller
             }
         }
 
-        // Dedupe listo → paginamos el array final, que es lo que realmente mostramos.
-        $all   = array_values($catalog);
-        $total = count($all);
-        $items = array_slice($all, ($page - 1) * $perPage, $perPage);
-
         return response()->json([
             'success' => true,
-            'data'    => $items,
-            'meta'    => [
-                'current_page' => $page,
-                'last_page'    => (int) max(1, ceil($total / $perPage)),
-                'total'        => $total,
-            ],
+            'data'    => array_values($catalog),   // ← todo, sin cortar
         ]);
     }
+    
 }    

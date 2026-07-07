@@ -93,6 +93,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/accounts/{account}/usage/increment', [AccountController::class, 'incrementUsage'])->name('accounts.usage.increment');
     Route::post('/accounts/{account}/usage/decrement', [AccountController::class, 'decrementUsage'])->name('accounts.usage.decrement');
     Route::post('/accounts/{account}/reset',           [AccountController::class, 'reset'])->name('accounts.reset');
+    Route::post('/accounts/{account}/reset-snooze',   [AccountController::class, 'snoozeReset'])->name('accounts.reset-snooze.set');
+    Route::delete('/accounts/{account}/reset-snooze', [AccountController::class, 'clearResetSnooze'])->name('accounts.reset-snooze.clear');
 
     Route::post('accounts/{account}/secondary-usage/increment', [AccountController::class, 'incrementSecondaryUsage'])
         ->name('accounts.secondary-usage.increment');

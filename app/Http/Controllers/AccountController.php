@@ -427,6 +427,44 @@ class AccountController extends Controller
 
         return back()->with('success', $msg);
     }
+
+    /**
+     * POST /accounts/{account}/reset-snooze
+     * POSPONE la cuenta N meses en los recomendados a resetear.
+     *
+     * Se usa cuando no se conoce la fecha real de reset (se reseteó desde Sony sin
+     * registrarlo acá). Guarda reset_snooze_until = hoy + N meses; mientras el plazo
+     * esté vigente la cuenta no aparece en los recomendados, aunque ya cumpla la
+     * ventana real de 6 meses. Cumplido el plazo vuelven las reglas normales.
+     * No pisa purchased_date ni reset_date.
+     */
+    public function snoozeReset(Request $request, Account $account)
+    {
+        $data = $request->validate([
+            'months' => 'required|integer|min:1|max:60',
+        ]);
+
+        $until = now()->addMonths((int) $data['months'])->startOfDay();
+        $account->update(['reset_snooze_until' => $until]);
+
+        return back()->with('success', sprintf(
+            'Cuenta pospuesta %d mes(es). Vuelve a recomendarse a resetear el %s.',
+            (int) $data['months'],
+            $until->format('Y-m-d')
+        ));
+    }
+
+    /**
+     * DELETE /accounts/{account}/reset-snooze
+     * Cancela la prórroga: la cuenta vuelve a evaluarse por las reglas normales.
+     */
+    public function clearResetSnooze(Account $account)
+    {
+        $account->update(['reset_snooze_until' => null]);
+
+        return back()->with('success', 'Prórroga cancelada. La cuenta vuelve a evaluarse por compra/reset reales.');
+    }
+
     /** Cuentas elegibles como madre. Excluye la cuenta actual al editar. */
     private function motherAccountOptions(?Account $exclude = null)
     {
@@ -986,10 +1024,35 @@ class AccountController extends Controller
             return back()->withErrors(['usage' => 'Esa asignación ya no está activa.']);
         }
 
-        $assignment->update(['status' => $data['status']]);
+        $restoredKey = DB::transaction(function () use ($account, $assignment, $data) {
+            $assignment->update(['status' => $data['status']]);
+
+            // Al revocar un uso, la última llave consumida vuelve al listado disponible.
+            if ($data['status'] !== 'revoked') {
+                return null;
+            }
+
+            $key = $account->keys()
+                ->whereNotNull('used_at')
+                ->orderByDesc('used_at')
+                ->orderByDesc('position')
+                ->first();
+
+            if ($key) {
+                $key->update(['used_at' => null]);
+            }
+
+            return $key;
+        });
 
         $label = $data['status'] === 'expired' ? 'expirada' : 'revocada';
-        return back()->with('success', "Slot {$assignment->slot_number} ({$assignment->platform}) marcado como {$label}.");
+        $msg   = "Slot {$assignment->slot_number} ({$assignment->platform}) marcado como {$label}.";
+
+        if ($restoredKey) {
+            $msg .= sprintf(' Llave #%d devuelta al listado de recuperación.', $restoredKey->position);
+        }
+
+        return back()->with('success', $msg);
     }
 
     /**
@@ -1008,10 +1071,35 @@ class AccountController extends Controller
             return back()->withErrors(['secondary' => 'Esa asignación ya no está activa.']);
         }
 
-        $assignment->update(['status' => $data['status']]);
+        $restoredKey = DB::transaction(function () use ($account, $assignment, $data) {
+            $assignment->update(['status' => $data['status']]);
+
+            // Al revocar un uso, la última llave consumida vuelve al listado disponible.
+            if ($data['status'] !== 'revoked') {
+                return null;
+            }
+
+            $key = $account->keys()
+                ->whereNotNull('used_at')
+                ->orderByDesc('used_at')
+                ->orderByDesc('position')
+                ->first();
+
+            if ($key) {
+                $key->update(['used_at' => null]);
+            }
+
+            return $key;
+        });
 
         $label = $data['status'] === 'expired' ? 'expirada' : 'revocada';
-        return back()->with('success', "Slot secundario {$assignment->slot_number} ({$assignment->platform}) marcado como {$label}.");
+        $msg   = "Slot secundario {$assignment->slot_number} ({$assignment->platform}) marcado como {$label}.";
+
+        if ($restoredKey) {
+            $msg .= sprintf(' Llave #%d devuelta al listado de recuperación.', $restoredKey->position);
+        }
+
+        return back()->with('success', $msg);
     }
 
     /**

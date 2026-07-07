@@ -16,6 +16,35 @@
     <span id="presence-text"></span>
 </div>
 
+{{-- Modal de control exclusivo: aparece si otro usuario ya tiene la orden --}}
+<div id="control-modal"
+     class="fixed inset-0 z-[60] hidden items-center justify-center bg-zinc-900/50 p-4">
+    <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
+        <div class="flex items-start gap-3">
+            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                          d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 0h10.5a2.25 2.25 0 0 1 2.25 2.25v6a2.25 2.25 0 0 1-2.25 2.25H6.75a2.25 2.25 0 0 1-2.25-2.25v-6a2.25 2.25 0 0 1 2.25-2.25Z" />
+                </svg>
+            </div>
+            <div class="min-w-0">
+                <h3 id="control-modal-title" class="text-base font-semibold text-zinc-900">Hay alguien más en esta orden</h3>
+                <p id="control-modal-text" class="mt-1 text-sm text-zinc-600"></p>
+            </div>
+        </div>
+        <div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <a id="control-modal-leave" href="{{ route('orders.index') }}"
+               class="inline-flex items-center justify-center rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900">
+                Ir al listado
+            </a>
+            <button type="button" id="control-modal-take"
+                    class="inline-flex items-center justify-center rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-700">
+                Tomar el control
+            </button>
+        </div>
+    </div>
+</div>
+
 {{-- Toast container para feedback de optimistic UI --}}
 <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2"></div>
 
@@ -101,6 +130,7 @@
             'result' => $candidatesByItem[$item->id] ?? null,
             'order'  => $order,
             'resettableSuggestions' => $resetSuggestionsByItem[$item->id] ?? null,
+            'packSuggestions' => $packSuggestionsByItem[$item->id] ?? null,
         ])
     @endforeach
 </div>
@@ -771,6 +801,10 @@ document.addEventListener('click', async (e) => {
 
     const state = {
         currentBtn: null,
+        mode: 'multi',         // 'multi' (genérico) | 'slot' (single-select por juego)
+        single: false,
+        onPick: null,          // callback(acc) para modo slot (staging, sin POST)
+        confirmLabel: 'Asignar seleccionadas',
         page: 1, lastPage: 1,
         search: '', debounce: null,
         selected: new Map(),   // id -> account (persiste entre páginas)
@@ -781,34 +815,48 @@ document.addEventListener('click', async (e) => {
         modal.classList.add('hidden');
         document.body.style.overflow = '';
         state.currentBtn = null;
+        state.mode = 'multi';
+        state.single = false;
+        state.onPick = null;
         state.selected.clear();
         state.busy = false;
-        confirmBtn.textContent = 'Asignar seleccionadas';
+        confirmBtn.textContent = state.confirmLabel = 'Asignar seleccionadas';
     }
 
     function updateFooter() {
         const n = state.selected.size;
         confirmBtn.disabled = n === 0 || state.busy;
         if (n === 0) {
-            selLabel.textContent = 'Ninguna cuenta seleccionada';
+            selLabel.textContent = state.single ? 'Ninguna cuenta elegida' : 'Ninguna cuenta seleccionada';
             selLabel.classList.add('italic', 'text-zinc-500');
             selLabel.classList.remove('text-zinc-900', 'font-medium');
         } else {
             const names = Array.from(state.selected.values()).map(a => a.email).join(', ');
-            selLabel.textContent = `${n} seleccionada${n === 1 ? '' : 's'}: ${names}`;
+            selLabel.textContent = state.single ? names : `${n} seleccionada${n === 1 ? '' : 's'}: ${names}`;
             selLabel.classList.remove('italic', 'text-zinc-500');
             selLabel.classList.add('text-zinc-900', 'font-medium');
         }
     }
 
-    function toggle(acc, card) {
-        if (acc.free <= 0) return;   // sin cupo → no seleccionable
-        state.selected.has(acc.id) ? state.selected.delete(acc.id) : state.selected.set(acc.id, acc);
-        const on = state.selected.has(acc.id);
+    function markCard(card, on) {
         card.classList.toggle('ring-2', on);
         card.classList.toggle('ring-indigo-500', on);
         card.classList.toggle('border-indigo-500', on);
         card.querySelector('[data-check]')?.classList.toggle('hidden', !on);
+    }
+
+    function toggle(acc, card) {
+        if (acc.free <= 0) return;   // sin cupo → no seleccionable
+        const wasOn = state.selected.has(acc.id);
+
+        // En modo slot es selección única: limpiamos cualquier otra elegida.
+        if (state.single && !wasOn) {
+            state.selected.clear();
+            grid.querySelectorAll('.pack-acc-card').forEach(c => markCard(c, false));
+        }
+
+        wasOn ? state.selected.delete(acc.id) : state.selected.set(acc.id, acc);
+        markCard(card, state.selected.has(acc.id));
         updateFooter();
     }
 
@@ -863,7 +911,7 @@ document.addEventListener('click', async (e) => {
 
         const params = new URLSearchParams({ page: state.page, search: state.search });
         try {
-            const res  = await fetch(`${state.currentBtn.dataset.candidatesUrl}?${params}`, {
+            const res  = await fetch(`${state.candidatesUrl}?${params}`, {
                 headers: { 'Accept': 'application/json' },
             });
             const json = await res.json();
@@ -890,12 +938,19 @@ document.addEventListener('click', async (e) => {
         loadPage();
     }
 
-    function open(btn) {
-        state.currentBtn = btn;
-        state.page = 1; state.search = '';
+    function openCommon({ candidatesUrl, assignUrl, title, search, single, confirmLabel, onPick }) {
+        state.page = 1;
+        state.search = search || '';
         state.selected.clear();
-        searchEl.value = '';
-        subtitle.textContent = btn.dataset.itemTitle || '';
+        state.candidatesUrl = candidatesUrl;
+        state.assignUrl = assignUrl || null;
+        state.single = !!single;
+        state.mode = single ? 'slot' : 'multi';
+        state.onPick = onPick || null;
+        state.confirmLabel = confirmLabel || (single ? 'Elegir esta cuenta' : 'Asignar seleccionadas');
+        confirmBtn.textContent = state.confirmLabel;
+        searchEl.value = state.search;
+        subtitle.textContent = title || '';
         updateFooter();
         modal.classList.remove('hidden');
         document.body.style.overflow = 'hidden';
@@ -903,13 +958,35 @@ document.addEventListener('click', async (e) => {
         setTimeout(() => searchEl.focus(), 50);
     }
 
+    // Modo genérico (packs sin desglose): multi-select + POST directo.
+    function open(btn) {
+        state.currentBtn = btn;
+        openCommon({
+            candidatesUrl: btn.dataset.candidatesUrl,
+            assignUrl:     btn.dataset.assignUrl,
+            title:         btn.dataset.itemTitle || '',
+            single:        false,
+        });
+    }
+
     async function submit() {
-        if (state.busy || !state.currentBtn || state.selected.size === 0) return;
+        if (state.busy || state.selected.size === 0) return;
+
+        // Modo slot: no hay POST, sólo devolvemos la cuenta elegida al llamador (staging).
+        if (state.mode === 'slot') {
+            const acc = Array.from(state.selected.values())[0];
+            const cb = state.onPick;
+            close();
+            if (cb) cb(acc);
+            return;
+        }
+
+        if (!state.currentBtn) return;
         state.busy = true; confirmBtn.disabled = true;
         const oldLabel = confirmBtn.textContent;
         confirmBtn.textContent = 'Asignando…';
         try {
-            const res = await fetch(state.currentBtn.dataset.assignUrl, {
+            const res = await fetch(state.assignUrl, {
                 method: 'POST',
                 headers: { 'X-CSRF-TOKEN': csrf(), 'Accept': 'application/json', 'Content-Type': 'application/json' },
                 body: JSON.stringify({ account_ids: Array.from(state.selected.keys()) }),
@@ -950,25 +1027,190 @@ document.addEventListener('click', async (e) => {
         const btn = e.target.closest('[data-pack-assign]');
         if (btn) open(btn);
     });
+
+    // API para el staging por juego (ver script de slots más abajo).
+    window.PackPicker = {
+        openForSlot(opts) {
+            state.currentBtn = null;
+            openCommon({
+                candidatesUrl: opts.candidatesUrl,
+                title:         opts.title || '',
+                search:        opts.search || '',
+                single:        true,
+                confirmLabel:  'Elegir esta cuenta',
+                onPick:        opts.onPick,
+            });
+        },
+    };
 })();
 </script>
 
-{{-- ════════ HEARTBEAT: presencia de otros usuarios en esta orden ════════ --}}
+{{-- ════════ PACK: staging de cuentas por juego (isPack con packGames) ════════ --}}
+<script>
+(function () {
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => (
+        {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+    // Render de la cuenta staged dentro del slot.
+    function renderSlotAccount(slot) {
+        const box = slot.querySelector('[data-slot-account]');
+        const acc = slot._account;
+        if (!acc) {
+            box.innerHTML = '<span class="text-xs text-zinc-400 italic">sin cuenta</span>';
+            return;
+        }
+        const meta = [acc.platform, acc.region, acc.product].filter(Boolean).map(esc).join(' · ');
+        box.innerHTML = `
+            <div class="flex items-center gap-1.5 min-w-0">
+                <span class="text-emerald-600 shrink-0">✓</span>
+                <div class="min-w-0">
+                    <div class="font-mono text-xs font-medium truncate">${esc(acc.email)}</div>
+                    ${meta ? `<div class="text-[11px] text-zinc-500 truncate">${meta}</div>` : ''}
+                </div>
+            </div>`;
+    }
+
+    function updateCard(card) {
+        const slots  = Array.from(card.querySelectorAll('[data-pack-slot]'));
+        const staged = slots.filter(s => s._account).length;
+        const total  = slots.length;
+
+        const progress = card.querySelector('[data-pack-progress]');
+        if (progress) progress.textContent = `${staged}/${total} juego${total === 1 ? '' : 's'} con cuenta`;
+
+        const deliver = card.querySelector('[data-pack-deliver]');
+        if (deliver) deliver.disabled = staged < total || total === 0;
+    }
+
+    function stageSlot(slot, acc) {
+        const card = slot.closest('[data-pack-slots]');
+        // Evitar la misma cuenta en dos juegos (consume un solo slot secundario).
+        if (acc) {
+            const dupe = Array.from(card.querySelectorAll('[data-pack-slot]'))
+                .some(s => s !== slot && s._account && s._account.id === acc.id);
+            if (dupe) {
+                showToast('Esa cuenta ya está elegida para otro juego del pack.', 'error');
+                return;
+            }
+        }
+        slot._account = acc || null;
+        renderSlotAccount(slot);
+        updateCard(card);
+    }
+
+    // Inicializa los slots de una tarjeta desde data-suggestion (sugerencia del server).
+    function initCard(card) {
+        card.querySelectorAll('[data-pack-slot]').forEach(slot => {
+            let sug = null;
+            try { sug = JSON.parse(slot.dataset.suggestion || 'null'); } catch (_) {}
+            // No usar stageSlot acá para no disparar el aviso de duplicados en la carga inicial.
+            slot._account = sug || null;
+            renderSlotAccount(slot);
+        });
+        updateCard(card);
+    }
+
+    async function deliver(card) {
+        const btn = card.querySelector('[data-pack-deliver]');
+        if (!btn || btn.disabled) return;
+        const slots = Array.from(card.querySelectorAll('[data-pack-slot]'));
+
+        const selections = slots
+            .filter(s => s._account)
+            .map(s => ({
+                account_id:      s._account.id,
+                pack_game_id:    s.dataset.packGameId ? Number(s.dataset.packGameId) : null,
+                pack_game_title: s.dataset.packGameTitle || null,
+            }));
+
+        if (!selections.length) return;
+
+        btn.disabled = true;
+        btn.querySelector('[data-btn-label]')?.classList.add('hidden');
+        btn.querySelector('[data-btn-loading]')?.classList.remove('hidden');
+
+        try {
+            const res = await fetch(card.dataset.assignUrl, {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ selections }),
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                const itemCard = document.querySelector('[data-item-card-id="' + card.dataset.itemId + '"]');
+                if (itemCard && data.item_html) replaceItemCard(itemCard, data.item_html);
+                showToast(data.message || 'Pack entregado', 'success');
+                if (data.failed && data.failed.length) showToast(`${data.failed.length} cuenta(s) sin slot libre`, 'info');
+                if (data.order_completed) showToast('¡Orden completada en Woo!', 'info');
+            } else {
+                showToast(data.message || 'No se pudo entregar el pack.', 'error');
+                btn.disabled = false;
+                btn.querySelector('[data-btn-label]')?.classList.remove('hidden');
+                btn.querySelector('[data-btn-loading]')?.classList.add('hidden');
+            }
+        } catch (_) {
+            showToast('Error de red.', 'error');
+            btn.disabled = false;
+            btn.querySelector('[data-btn-label]')?.classList.remove('hidden');
+            btn.querySelector('[data-btn-loading]')?.classList.add('hidden');
+        }
+    }
+
+    // Delegación: "Cambiar cuenta" abre el picker en modo slot (staging).
+    document.addEventListener('click', (e) => {
+        const change = e.target.closest('[data-pack-slot-change]');
+        if (change) {
+            const slot = change.closest('[data-pack-slot]');
+            const card = slot.closest('[data-pack-slots]');
+            window.PackPicker.openForSlot({
+                candidatesUrl: card.dataset.candidatesUrl,
+                title:         `Cuenta para: ${slot.dataset.packGameTitle || ''}`,
+                search:        slot.dataset.packGameTitle || '',
+                onPick:        (acc) => stageSlot(slot, acc),
+            });
+            return;
+        }
+
+        const deliverBtn = e.target.closest('[data-pack-deliver]');
+        if (deliverBtn) deliver(deliverBtn.closest('[data-pack-slots]'));
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+        document.querySelectorAll('[data-pack-slots]').forEach(initCard);
+    });
+})();
+</script>
+
+{{-- ════════ HEARTBEAT: presencia + control exclusivo de esta orden ════════ --}}
 <script>
 (function () {
     const url      = '{{ route('orders.heartbeat', $order) }}';
+    const listUrl  = '{{ route('orders.index') }}';
     const csrf     = document.querySelector('meta[name="csrf-token"]').content;
     const interval = {{ \App\Services\OrderPresence::INTERVAL }} * 1000;
+
     const banner   = document.getElementById('presence-banner');
     const textEl   = document.getElementById('presence-text');
-    if (!banner) return;
 
-    let timer = null;
+    const modal      = document.getElementById('control-modal');
+    const modalTitle = document.getElementById('control-modal-title');
+    const modalText  = document.getElementById('control-modal-text');
+    const takeBtn    = document.getElementById('control-modal-take');
+    if (!banner || !modal) return;
+
+    let timer      = null;
+    let hadControl = false;   // ¿tuve el control en el latido anterior? (para distinguir "me lo quitaron")
+    let takeNext   = false;   // pedir el control en el próximo latido
 
     const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => (
         {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-    function render(viewers) {
+    // Banner: otros que están viendo la orden mientras YO tengo el control.
+    function renderBanner(viewers) {
         if (!viewers || viewers.length === 0) {
             banner.classList.add('hidden');
             textEl.textContent = '';
@@ -980,9 +1222,38 @@ document.addEventListener('click', async (e) => {
         banner.classList.remove('hidden');
     }
 
+    function showModal(controller, bumped) {
+        const name = esc(controller?.name || 'Otro usuario');
+        modalTitle.textContent = bumped ? 'Perdiste el control de esta orden' : 'Hay alguien más en esta orden';
+        modalText.innerHTML = bumped
+            ? `<strong>${name}</strong> tomó el control de esta orden. Para seguir operando, recuperá el control.`
+            : `<strong>${name}</strong> ya está trabajando en esta orden. Podés tomar el control (lo perderá) o volver al listado.`;
+        takeBtn.textContent = bumped ? 'Recuperar el control' : 'Tomar el control';
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+    function hideModal() {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+
+    function apply(data) {
+        if (data.has_control) {
+            hideModal();
+            renderBanner(data.viewers);
+        } else {
+            // Otro manda: si yo tenía el control, me lo quitaron ("bumped").
+            banner.classList.add('hidden');
+            showModal(data.controller, hadControl);
+        }
+        hadControl = !!data.has_control;
+    }
+
     async function beat() {
+        const take = takeNext;
+        takeNext = false;
         try {
-            const res = await fetch(url, {
+            const res = await fetch(url + (take ? '?take=1' : ''), {
                 method: 'POST',
                 headers: {
                     'Accept': 'application/json',
@@ -991,10 +1262,15 @@ document.addEventListener('click', async (e) => {
                 },
             });
             if (!res.ok) return;
-            const data = await res.json();
-            render(data.viewers);
+            apply(await res.json());
         } catch (_) { /* red caída: reintentamos en el próximo latido */ }
     }
+
+    // "Tomar / Recuperar el control": arrebata en un latido inmediato.
+    takeBtn.addEventListener('click', () => {
+        takeNext = true;
+        beat();
+    });
 
     function leave() {
         // sendBeacon sobrevive al cierre de la pestaña; va por FormData con _token.

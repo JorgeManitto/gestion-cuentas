@@ -75,6 +75,10 @@ class OrderController extends Controller
             'items.*.isMembership' => 'nullable',
             'items.*.isPreOrden'   => 'nullable',
             'items.*.isPack'       => 'nullable',
+            'items.*.packGames'              => 'nullable|array',
+            'items.*.packGames.*.gameId'     => 'nullable',
+            'items.*.packGames.*.gameTitle'  => 'nullable|string|max:255',
+            'items.*.packGames.*.platform'   => 'nullable|string|max:32',
         ]);
 
         $order = DB::transaction(function () use ($validated) {
@@ -141,6 +145,8 @@ class OrderController extends Controller
             $data['consoleModel'] ?? null
         );
 
+        $isPack = filter_var($data['isPack'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
         return $order->items()->create([
             'wc_product_id'        => $wcProductId,
             'game_id'              => $wcProduct?->game_id,
@@ -152,9 +158,34 @@ class OrderController extends Controller
             'price'                => $data['price'] ?? null,
             'price_sale'           => $data['price_sale'] ?? null,
             'is_preorden'          => filter_var($data['isPreOrden'] ?? false, FILTER_VALIDATE_BOOLEAN),
-            'is_pack'              => filter_var($data['isPack'] ?? false, FILTER_VALIDATE_BOOLEAN), 
+            'is_pack'              => $isPack,
+            'pack_games'           => $isPack ? $this->normalizePackGames($data['packGames'] ?? null) : null,
             'fulfillment_status'   => 'pending',
         ]);
+    }
+
+    /**
+     * Normaliza el arreglo packGames de Woo a la forma que guardamos:
+     *   [{ game_id: int|null, game_title: string, platform: string|null }, ...]
+     * Devuelve null si no vino nada usable (pack "viejo" sin desglose).
+     */
+    private function normalizePackGames($packGames): ?array
+    {
+        if (! is_array($packGames) || empty($packGames)) {
+            return null;
+        }
+
+        $normalized = collect($packGames)
+            ->filter(fn ($g) => is_array($g))
+            ->map(fn ($g) => [
+                'game_id'    => isset($g['gameId']) && $g['gameId'] !== '' ? (int) $g['gameId'] : null,
+                'game_title' => $g['gameTitle'] ?? '—',
+                'platform'   => $g['platform'] ?? null,
+            ])
+            ->values()
+            ->all();
+
+        return empty($normalized) ? null : $normalized;
     }
 
     /**
@@ -268,8 +299,23 @@ class OrderController extends Controller
         ];
 
         $this->attachMatchmakingStatus($orders);
+        $this->attachPresence($orders);
 
         return [$orders, $stats];
+    }
+
+    /**
+     * Adjunta a cada orden de la página quién tiene el control ahora mismo
+     * (para pintar el candado en el listado). Atributo transitorio.
+     */
+    private function attachPresence($orders): void
+    {
+        $ids     = $orders->getCollection()->pluck('id')->all();
+        $holders = $this->presence->holdersFor($ids);
+
+        foreach ($orders->getCollection() as $order) {
+            $order->setAttribute('presence_holder', $holders[$order->id] ?? null);
+        }
     }
 
     /**
@@ -285,6 +331,7 @@ class OrderController extends Controller
             $o->items->pluck('fulfillment_status')->implode(','),
             $o->mm_status['state']   ?? null,                                   // ← NUEVO
             ($o->mm_status['ready'] ?? 0).'-'.($o->mm_status['oc'] ?? 0).'-'.($o->mm_status['missing'] ?? 0), // ← NUEVO
+            $o->presence_holder['id'] ?? null,                                  // ← candado (quién controla)
         ])->all();
 
         return md5(json_encode([
@@ -309,8 +356,14 @@ class OrderController extends Controller
 
         $candidatesByItem       = [];
         $resetSuggestionsByItem = [];
+        $packSuggestionsByItem  = [];
 
         foreach ($order->items as $item) {
+            // Packs con juegos preseleccionados: sugerimos una cuenta secundaria por juego.
+            if ($item->fulfillment_status === 'pending' && $item->is_pack && $item->packGames()) {
+                $packSuggestionsByItem[$item->id] = $this->packSuggestions($item);
+            }
+
             if ($item->fulfillment_status !== 'pending' || $item->is_pack) {   // ← + is_pack
                 continue;
             }
@@ -330,7 +383,7 @@ class OrderController extends Controller
             }
         }
 
-        return view('orders.show', compact('order', 'candidatesByItem', 'resetSuggestionsByItem'));
+        return view('orders.show', compact('order', 'candidatesByItem', 'resetSuggestionsByItem', 'packSuggestionsByItem'));
     }
 
     /**
@@ -348,14 +401,13 @@ class OrderController extends Controller
         $user = $request->user();
         $name = $user->name ?: $user->email;
 
-        $viewers = $request->boolean('leave')
+        // El payload trae: viewers (otros presentes), controller (quién manda) y
+        // has_control (si soy yo). `take=1` arrebata el control explícitamente.
+        $payload = $request->boolean('leave')
             ? $this->presence->leave($order->id, $user->id)
-            : $this->presence->beat($order->id, $user->id, $name);
+            : $this->presence->beat($order->id, $user->id, $name, $request->boolean('take'));
 
-        return response()->json([
-            'viewers'  => $viewers,
-            'interval' => OrderPresence::INTERVAL,
-        ]);
+        return response()->json($payload + ['interval' => OrderPresence::INTERVAL]);
     }
 
     /**
@@ -877,6 +929,12 @@ class OrderController extends Controller
         $ready = $oc = $missing = 0;
 
         foreach ($pending as $item) {
+            // Packs: no usan stock primario, sino cuentas SECUNDARIAS.
+            if ($item->is_pack) {
+                $this->packHasSecondaryStock($item) ? $ready++ : $missing++;
+                continue;
+            }
+
             $result = $this->matchmaking->findCandidates($item);
 
             if ($result && ! $result->isEmpty() && $result->best()) {
@@ -897,6 +955,28 @@ class OrderController extends Controller
 
         return compact('state', 'label', 'color', 'ready', 'oc', 'missing');
     }
+
+    /**
+     * ¿El pack tiene stock SECUNDARIO disponible para considerarse "listo para enviar"
+     * en el índice? Con juegos preseleccionados, exige una cuenta secundaria por cada
+     * juego; sin desglose (packs viejos), basta con que exista alguna cuenta secundaria.
+     */
+    private function packHasSecondaryStock(OrderItem $item): bool
+    {
+        $games = $item->packGames();
+
+        if ($games) {
+            foreach ($games as $g) {
+                if (! $this->matchmaking->bestSecondaryForPackGame($g['game_id'] ?? null, $g['platform'] ?? null)) {
+                    return false;   // algún juego sin cuenta secundaria → no listo
+                }
+            }
+            return true;
+        }
+
+        return $this->matchmaking->hasSecondaryStock();
+    }
+
     /**
      * POST /items/{item}/notify-game-change
      * Envía al cliente el correo de "cambio de juego" cuando no hay stock.
@@ -954,29 +1034,7 @@ class OrderController extends Controller
             ['path' => $request->url(), 'query' => $request->query()],
         );
 
-        $data = collect($paginator->items())->map(function (Account $acc) {
-            $slots = collect($acc->secondaryPlatforms())
-                ->mapWithKeys(fn ($p) => [$p => [
-                    'free'     => $acc->secondaryFreeSlotsFor($p),
-                    'capacity' => $acc->secondaryCapacityFor($p),
-                ]]);
-
-            $cover = $acc->coverProduct();   // usa game.products ya eager-loaded → sin query extra
-
-            return [
-                'id'        => $acc->id,
-                'email'     => $acc->email,
-                'platform'  => $acc->platform,
-                'is_dual'   => (bool) $acc->is_dual,
-                'region'    => $acc->region,
-                'gamer_tag' => $acc->gamer_tag,
-                'game'      => $acc->game?->canonical_name,
-                'product'   => $cover?->name,        // ← NUEVO
-                'image_url' => $cover?->image_url,   // ← NUEVO
-                'free'      => (int) $slots->sum('free'),
-                'slots'     => $slots->map(fn ($v, $k) => "$k {$v['free']}/{$v['capacity']}")->values()->all(),
-            ];
-        });
+        $data = collect($paginator->items())->map(fn (Account $acc) => $this->serializeSecondaryAccount($acc));
 
         return response()->json([
             'success' => true,
@@ -990,13 +1048,81 @@ class OrderController extends Controller
     }
 
     /**
+     * Serializa una cuenta secundaria para el JSON del picker / sugerencias del pack.
+     * Requiere game.products y secondaryAssignments eager-loaded (sin queries extra).
+     */
+    private function serializeSecondaryAccount(Account $acc): array
+    {
+        $slots = collect($acc->secondaryPlatforms())
+            ->mapWithKeys(fn ($p) => [$p => [
+                'free'     => $acc->secondaryFreeSlotsFor($p),
+                'capacity' => $acc->secondaryCapacityFor($p),
+            ]]);
+
+        $cover = $acc->coverProduct();
+
+        return [
+            'id'        => $acc->id,
+            'email'     => $acc->email,
+            'platform'  => $acc->platform,
+            'is_dual'   => (bool) $acc->is_dual,
+            'region'    => $acc->region,
+            'gamer_tag' => $acc->gamer_tag,
+            'game'      => $acc->game?->canonical_name,
+            'product'   => $cover?->name,
+            'image_url' => $cover?->image_url,
+            'free'      => (int) $slots->sum('free'),
+            'slots'     => $slots->map(fn ($v, $k) => "$k {$v['free']}/{$v['capacity']}")->values()->all(),
+        ];
+    }
+
+    /**
+     * Para un ítem de pack con juegos preseleccionados, arma la sugerencia de cuenta
+     * secundaria por cada juego (alineado con el orden de packGames). Cada entrada:
+     *   ['game' => packGame, 'suggestion' => cuenta serializada|null]
+     */
+    private function packSuggestions(OrderItem $item): array
+    {
+        // Precargamos los WooProduct de los juegos del pack para portada/nombre (sin N+1).
+        $productIds = collect($item->packGames())->pluck('game_id')->filter()->unique();
+        $products   = WooProduct::whereIn('id', $productIds)->get()->keyBy('id');
+
+        return collect($item->packGames())->map(function (array $g) use ($products) {
+            $product = isset($g['game_id']) ? $products->get($g['game_id']) : null;
+
+            $account = $this->matchmaking->bestSecondaryForPackGame(
+                $g['game_id'] ?? null,
+                $g['platform'] ?? null,
+            );
+
+            return [
+                'game' => [
+                    'game_id'    => $g['game_id'] ?? null,
+                    'game_title' => $g['game_title'] ?? ($product?->name ?? '—'),
+                    'platform'   => $g['platform'] ?? null,
+                    'image_url'  => $product?->image_url,
+                ],
+                'suggestion' => $account ? $this->serializeSecondaryAccount($account) : null,
+            ];
+        })->all();
+    }
+
+    /**
      * POST /items/{item}/assign-secondary  → asigna cuenta de pack al item.
+     *
+     * Acepta dos formatos:
+     *   - Legacy (packs sin juegos preseleccionados): { account_ids: [1,2,3] }
+     *   - Por slot (pack con packGames): { selections: [{ account_id, pack_game_id, pack_game_title }] }
      */
     public function assignSecondary(Request $request, OrderItem $item): JsonResponse
     {
         $validated = $request->validate([
-            'account_ids'   => 'required|array|min:1',
-            'account_ids.*' => 'integer|exists:accounts,id',
+            'account_ids'                   => 'nullable|array',
+            'account_ids.*'                 => 'integer|exists:accounts,id',
+            'selections'                    => 'nullable|array',
+            'selections.*.account_id'       => 'required_with:selections|integer|exists:accounts,id',
+            'selections.*.pack_game_id'     => 'nullable|integer',
+            'selections.*.pack_game_title'  => 'nullable|string|max:255',
         ]);
 
         $item->loadMissing('order');
@@ -1009,8 +1135,28 @@ class OrderController extends Controller
             return response()->json(['success' => false, 'message' => 'Este item no es de pack.'], 422);
         }
 
-        $accountIds = array_values(array_unique($validated['account_ids']));
-        $result = $this->matchmaking->assignSecondaryMany($item, $accountIds, auth()->user()->email);
+        // Normalizamos ambos formatos a lista de account_ids + meta por cuenta.
+        $meta = [];
+        if (! empty($validated['selections'])) {
+            $accountIds = [];
+            foreach ($validated['selections'] as $sel) {
+                $accId = (int) $sel['account_id'];
+                $accountIds[] = $accId;
+                $meta[$accId] = [
+                    'pack_game_id'    => $sel['pack_game_id'] ?? null,
+                    'pack_game_title' => $sel['pack_game_title'] ?? null,
+                ];
+            }
+        } else {
+            $accountIds = $validated['account_ids'] ?? [];
+        }
+
+        $accountIds = array_values(array_unique($accountIds));
+        if (empty($accountIds)) {
+            return response()->json(['success' => false, 'message' => 'No se seleccionó ninguna cuenta.'], 422);
+        }
+
+        $result = $this->matchmaking->assignSecondaryMany($item, $accountIds, auth()->user()->email, $meta);
 
         if (empty($result['assigned'])) {
             return response()->json([

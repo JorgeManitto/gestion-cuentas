@@ -22,7 +22,20 @@
             <input type="checkbox" value="{{ $o->id }}" class="row-check rounded border-zinc-300">
         </td>
         <td class="px-4 py-2.5 font-mono text-xs align-middle">
-            <a href="{{ route('orders.show', $o) }}" class="hover:underline">#{{ $o->wc_order_id }}</a>
+            <div class="flex items-center gap-1.5">
+                <a href="{{ route('orders.show', $o) }}" class="hover:underline">#{{ $o->wc_order_id }}</a>
+                @if ($o->presence_holder)
+                    @php $mine = $o->presence_holder['id'] === auth()->id(); @endphp
+                    <span onclick="event.stopPropagation()"
+                          title="{{ $mine ? 'Tenés el control de esta orden' : $o->presence_holder['name'] . ' tiene el control' }}"
+                          class="inline-flex items-center {{ $mine ? 'text-emerald-600' : 'text-amber-600' }}">
+                        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                  d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 0h10.5a2.25 2.25 0 0 1 2.25 2.25v6a2.25 2.25 0 0 1-2.25 2.25H6.75a2.25 2.25 0 0 1-2.25-2.25v-6a2.25 2.25 0 0 1 2.25-2.25Z" />
+                        </svg>
+                    </span>
+                @endif
+            </div>
         </td>
         <td class="px-4 py-2.5 align-middle">
             <div class="flex items-center gap-3">

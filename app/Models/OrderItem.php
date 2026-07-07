@@ -20,6 +20,7 @@ class OrderItem extends Model
         'price_sale',
         'is_preorden',
         'is_pack',
+        'pack_games',
         'account_id',
         'activation_key',
         'who_delivered',
@@ -34,7 +35,21 @@ class OrderItem extends Model
         'price_sale'    => 'decimal:2',
         'is_preorden'   => 'boolean',
         'is_pack'       => 'boolean',
+        'pack_games'    => 'array',
     ];
+
+    /**
+     * Lista normalizada de juegos preseleccionados del pack (o [] si no aplica).
+     * Cada entrada: ['game_id' => int|null, 'game_title' => string, 'platform' => string|null].
+     */
+    public function packGames(): array
+    {
+        if (! $this->is_pack || ! is_array($this->pack_games)) {
+            return [];
+        }
+
+        return array_values(array_filter($this->pack_games, fn ($g) => is_array($g)));
+    }
 
     public function order(): BelongsTo
     {

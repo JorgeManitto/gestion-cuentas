@@ -29,6 +29,7 @@ class Account extends Model
         'created_date',
         'purchased_date',
         'reset_date',
+        'reset_snooze_until',
         'gamer_tag',
         'full_name',
         'birth_date',
@@ -53,10 +54,11 @@ class Account extends Model
     protected $casts = [
         'is_dual'        => 'boolean',
         'is_membership'  => 'boolean',
-        'created_date'   => 'date',
-        'purchased_date' => 'date',
-        'reset_date'     => 'date',
-        'birth_date'     => 'date',
+        'created_date'       => 'date',
+        'purchased_date'     => 'date',
+        'reset_date'         => 'date',
+        'reset_snooze_until' => 'date',
+        'birth_date'         => 'date',
     ];
 
     /** Duraciones de membresía válidas, en meses. */
@@ -480,6 +482,11 @@ class Account extends Model
      */
     public function isResettableStock(?string $platform = null): bool
     {
+        // Prórroga vigente: el operador la pospuso, no la recomendamos todavía.
+        if ($this->isResetSnoozed()) {
+            return false;
+        }
+
         // Si nos pasan la plataforma, evaluamos SOLO ese pool; si no, el total (comportamiento viejo).
         $freeInPool = $platform !== null
             ? $this->freeSlotsFor($platform)
@@ -508,7 +515,11 @@ class Account extends Model
         return $query
             ->where('status', 'active')
             ->whereRaw('COALESCE(reset_date, purchased_date) IS NOT NULL')
-            ->whereRaw('COALESCE(reset_date, purchased_date) <= ?', [$cutoff]);
+            ->whereRaw('COALESCE(reset_date, purchased_date) <= ?', [$cutoff])
+            // Snooze/prórroga: excluye las pospuestas cuyo plazo todavía no venció.
+            ->where(fn ($q) => $q
+                ->whereNull('reset_snooze_until')
+                ->orWhere('reset_snooze_until', '<=', now()));
     }
     /**
      * Fecha de referencia para la rotación de stock:
@@ -529,6 +540,29 @@ class Account extends Model
         if ($this->reset_date)     return 'reset';
         if ($this->purchased_date) return 'compra';
         return null;
+    }
+
+    // ──────────────────────── SNOOZE / PRÓRROGA DE RESET ────────────────────────
+
+    /**
+     * ¿La cuenta está pospuesta (snooze vigente)?
+     * Mientras esté vigente NO aparece en los recomendados a resetear, aunque ya
+     * cumpla la ventana real de 6 meses. Vencido el plazo, vuelven las reglas normales.
+     */
+    public function isResetSnoozed(): bool
+    {
+        return $this->reset_snooze_until !== null
+            && $this->reset_snooze_until->isFuture();
+    }
+
+    /** Meses (redondeados hacia arriba) que faltan para que se vuelva a recomendar. Null si no está pospuesta. */
+    public function resetSnoozeMonthsLeft(): ?int
+    {
+        if (! $this->isResetSnoozed()) {
+            return null;
+        }
+
+        return (int) ceil(now()->diffInDays($this->reset_snooze_until, false) / 30);
     }
 
     /** Antigüedad en días desde la referencia de rotación. Más alto = más prioritario. */

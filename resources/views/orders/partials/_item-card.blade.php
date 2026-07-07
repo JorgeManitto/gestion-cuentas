@@ -98,37 +98,114 @@
             @endif
 
              @if ($item->is_pack)
-                {{-- ────── ITEM DE PACK: stock secundario ────── --}}
-                <div class="rounded-md border-2 border-indigo-200 bg-indigo-50/40 p-4">
-                    <div class="flex items-start justify-between gap-4">
-                        <div class="flex-1 min-w-0">
-                            <div class="text-xs font-medium uppercase tracking-wide text-indigo-700 mb-1">
-                                Item de pack
-                            </div>
-                            <div class="text-sm text-zinc-700">
-                                Requiere una cuenta especial (stock secundario).
-                                Elegí una de las cuentas con cupo de pack disponible.
-                            </div>
+                @php $packGames = $item->packGames(); @endphp
+
+                @if ($packGames)
+                    {{-- ────── PACK con juegos preseleccionados: un slot por juego ────── --}}
+                    @php $packSug = $packSuggestions ?? []; @endphp
+                    <div class="rounded-md border-2 border-indigo-200 bg-indigo-50/40 p-4"
+                         data-pack-slots
+                         data-item-id="{{ $item->id }}"
+                         data-assign-url="{{ route('items.assign-secondary', $item) }}"
+                         data-candidates-url="{{ route('items.secondary-candidates', $item) }}">
+
+                        <div class="text-xs font-medium uppercase tracking-wide text-indigo-700 mb-3">
+                            Juegos del pack · elegí una cuenta secundaria por juego
+                        </div>
+
+                        <div class="space-y-2">
+                            @foreach ($packGames as $idx => $g)
+                                @php
+                                    $sug   = $packSug[$idx]['suggestion'] ?? null;
+                                    $gInfo = $packSug[$idx]['game'] ?? $g;
+                                @endphp
+                                <div class="rounded-md border border-indigo-200 bg-white px-3 py-2"
+                                     data-pack-slot
+                                     data-slot-index="{{ $idx }}"
+                                     data-pack-game-id="{{ $g['game_id'] ?? '' }}"
+                                     data-pack-game-title="{{ $gInfo['game_title'] ?? '' }}"
+                                     data-platform="{{ $g['platform'] ?? '' }}"
+                                     data-suggestion='@json($sug)'>
+                                    <div class="flex items-center gap-3">
+                                        {{-- Juego solicitado --}}
+                                        <div class="flex items-center gap-2 min-w-0 w-2/5 shrink-0">
+                                            @if (! empty($gInfo['image_url']))
+                                                <img src="{{ $gInfo['image_url'] }}" alt=""
+                                                     class="w-9 h-12 object-cover rounded shrink-0 bg-zinc-100"
+                                                     onerror="this.style.display='none'">
+                                            @endif
+                                            <div class="min-w-0">
+                                                <div class="text-sm font-medium truncate">{{ $gInfo['game_title'] ?? '—' }}</div>
+                                                <div class="text-xs text-zinc-500 font-mono uppercase">{{ $gInfo['platform'] ?? '' }}</div>
+                                            </div>
+                                        </div>
+
+                                        {{-- Cuenta staged (la rellena el JS desde data-suggestion) --}}
+                                        <div class="flex-1 min-w-0" data-slot-account>
+                                            <span class="text-xs text-zinc-400 italic">sin cuenta</span>
+                                        </div>
+
+                                        {{-- Acción --}}
+                                        @if ($canAssign)
+                                            <button type="button" data-pack-slot-change
+                                                    class="shrink-0 rounded-md bg-white px-3 py-1.5 text-xs font-medium text-indigo-700 ring-1 ring-inset ring-indigo-300 hover:bg-indigo-50 whitespace-nowrap">
+                                                Cambiar cuenta
+                                            </button>
+                                        @endif
+                                    </div>
+                                </div>
+                            @endforeach
                         </div>
 
                         @if ($canAssign)
-                            <button type="button"
-                                    data-pack-assign
-                                    data-candidates-url="{{ route('items.secondary-candidates', $item) }}"
-                                    data-assign-url="{{ route('items.assign-secondary', $item) }}"
-                                    data-item-id="{{ $item->id }}"
-                                    data-item-title="{{ $item->game_title }}"
-                                    class="shrink-0 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 whitespace-nowrap">
-                                Asignar cuenta de pack
-                            </button>
+                            <div class="mt-4 flex items-center justify-between gap-3">
+                                <div class="text-xs text-zinc-500" data-pack-progress></div>
+                                <button type="button" data-pack-deliver disabled
+                                        class="shrink-0 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed">
+                                    <span data-btn-label>Asignar y entregar pack</span>
+                                    <span data-btn-loading class="hidden">⏳ Asignando…</span>
+                                </button>
+                            </div>
                         @else
-                            <button type="button" disabled
-                                    class="shrink-0 rounded-md bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-400 cursor-not-allowed">
-                                Asignar
-                            </button>
+                            <div class="mt-4 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+                                Envío deshabilitado hasta que la orden esté en "{{ $processingStatus }}".
+                            </div>
                         @endif
                     </div>
-                </div>
+
+                @else
+                    {{-- ────── ITEM DE PACK (sin desglose): stock secundario genérico ────── --}}
+                    <div class="rounded-md border-2 border-indigo-200 bg-indigo-50/40 p-4">
+                        <div class="flex items-start justify-between gap-4">
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium uppercase tracking-wide text-indigo-700 mb-1">
+                                    Item de pack
+                                </div>
+                                <div class="text-sm text-zinc-700">
+                                    Requiere una cuenta especial (stock secundario).
+                                    Elegí una de las cuentas con cupo de pack disponible.
+                                </div>
+                            </div>
+
+                            @if ($canAssign)
+                                <button type="button"
+                                        data-pack-assign
+                                        data-candidates-url="{{ route('items.secondary-candidates', $item) }}"
+                                        data-assign-url="{{ route('items.assign-secondary', $item) }}"
+                                        data-item-id="{{ $item->id }}"
+                                        data-item-title="{{ $item->game_title }}"
+                                        class="shrink-0 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 whitespace-nowrap">
+                                    Asignar cuenta de pack
+                                </button>
+                            @else
+                                <button type="button" disabled
+                                        class="shrink-0 rounded-md bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-400 cursor-not-allowed">
+                                    Asignar
+                                </button>
+                            @endif
+                        </div>
+                    </div>
+                @endif
 
             @elseif (! $result || $result->isEmpty())
                 {{-- ────── SIN CANDIDATAS ────── --}}
@@ -364,6 +441,9 @@
                                     <div class="text-sm font-medium break-words">
                                         {{ $cover?->name ?? $sa->account?->game?->canonical_name ?? '—' }}
                                     </div>
+                                    @if ($sa->pack_game_title)
+                                        <div class="text-xs text-indigo-600">Juego del pack: {{ $sa->pack_game_title }}</div>
+                                    @endif
                                     <div class="text-xs text-zinc-500 font-mono">
                                         {{ $sa->platform }} · slot secundario #{{ $sa->slot_number }}
                                         @if ($sa->assigned_at) · {{ $sa->assigned_at->format('d/m/Y') }} @endif

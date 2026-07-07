@@ -6,11 +6,18 @@ use Closure;
 use Illuminate\Support\Facades\Cache;
 
 /**
- * Presencia estilo "heartbeat" de WordPress: qué usuarios están mirando una
- * orden ahora mismo. Se apoya en el Cache (driver database) — sin migraciones.
+ * Presencia + control exclusivo estilo "heartbeat" de WordPress.
  *
- * Cada cliente late cada INTERVAL segundos; si deja de latir por más de
- * ACTIVE_WINDOW segundos (pestaña cerrada, sin red, dormido) se lo poda solo.
+ * Además de saber qué usuarios están mirando una orden, un solo usuario tiene
+ * el CONTROL de la orden a la vez (el que puede operar). El primero que entra
+ * lo toma; otro puede arrebatárselo explícitamente (botón "Tomar el control").
+ *
+ * Se apoya en el Cache (driver database) — sin migraciones. Cada cliente late
+ * cada INTERVAL segundos; si deja de latir por más de ACTIVE_WINDOW segundos
+ * (pestaña cerrada, sin red, dormido) se lo poda solo y libera el control.
+ *
+ * Estructura en caché por orden:
+ *   ['controller' => ?int userId, 'viewers' => [userId => ['name','seen']]]
  */
 class OrderPresence
 {
@@ -24,64 +31,132 @@ class OrderPresence
     private const TTL = 300;
 
     /**
-     * Registra (o refresca) la presencia del usuario en la orden y devuelve
-     * la lista de OTROS usuarios presentes.
+     * Registra/refresca la presencia del usuario y resuelve el control.
      *
-     * @return array<int, array{id:int, name:string}>
+     * @param bool $take Si true, el usuario ARREBATA el control (lo pidió explícitamente).
+     *                   Si false, solo lo toma cuando no hay nadie con control activo.
+     * @return array{viewers:array<int,array{id:int,name:string}>, controller:?array{id:int,name:string}, has_control:bool}
      */
-    public function beat(int $orderId, int $userId, string $userName): array
+    public function beat(int $orderId, int $userId, string $userName, bool $take = false): array
     {
-        return $this->mutate($orderId, $userId, function (array $viewers) use ($userId, $userName) {
-            $viewers[$userId] = ['name' => $userName, 'seen' => time()];
-            return $viewers;
+        return $this->mutate($orderId, $userId, function (array $state) use ($userId, $userName, $take) {
+            $state['viewers'][$userId] = ['name' => $userName, 'seen' => time()];
+
+            // Toma el control si lo pidió, o si nadie lo tiene ahora mismo.
+            if ($take || $state['controller'] === null) {
+                $state['controller'] = $userId;
+            }
+
+            return $state;
         });
     }
 
     /**
-     * Quita al usuario de la orden (al cerrar/abandonar la pestaña).
+     * Quita al usuario de la orden (al cerrar/abandonar la pestaña) y, si tenía
+     * el control, lo libera para que otro presente lo tome en su próximo latido.
      *
-     * @return array<int, array{id:int, name:string}>
+     * @return array{viewers:array<int,array{id:int,name:string}>, controller:?array{id:int,name:string}, has_control:bool}
      */
     public function leave(int $orderId, int $userId): array
     {
-        return $this->mutate($orderId, $userId, function (array $viewers) use ($userId) {
-            unset($viewers[$userId]);
-            return $viewers;
+        return $this->mutate($orderId, $userId, function (array $state) use ($userId) {
+            unset($state['viewers'][$userId]);
+
+            if ($state['controller'] === $userId) {
+                $state['controller'] = null;
+            }
+
+            return $state;
         });
     }
 
     /**
-     * Lee/modifica el mapa de presencia bajo lock (read-modify-write atómico),
-     * poda a los inactivos y devuelve los otros presentes.
+     * Quién tiene el control de cada orden (solo lectura, sin lock ni escritura).
+     * Pensado para pintar el candado en el listado.
      *
-     * @return array<int, array{id:int, name:string}>
+     * @param  array<int,int> $orderIds
+     * @return array<int, array{id:int, name:string}>  orderId => holder
+     */
+    public function holdersFor(array $orderIds): array
+    {
+        $out = [];
+
+        foreach (array_unique($orderIds) as $orderId) {
+            $state = $this->prune($this->normalize(Cache::get($this->key($orderId), [])));
+            $cid   = $state['controller'];
+
+            if ($cid !== null && isset($state['viewers'][$cid])) {
+                $out[$orderId] = ['id' => (int) $cid, 'name' => $state['viewers'][$cid]['name']];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Lee/modifica el estado bajo lock (read-modify-write atómico), poda a los
+     * inactivos y devuelve el payload de presencia + control para el usuario.
      */
     private function mutate(int $orderId, int $selfId, Closure $apply): array
     {
-        $key = $this->key($orderId);
-        $viewers = [];
+        $key   = $this->key($orderId);
+        $state = ['controller' => null, 'viewers' => []];
 
-        // El lock evita que dos latidos simultáneos se pisen el array.
-        Cache::lock($key . ':lock', 5)->block(3, function () use ($key, $apply, &$viewers) {
-            $viewers = $this->prune(Cache::get($key, []));
-            $viewers = $apply($viewers);
+        // El lock evita que dos latidos simultáneos se pisen el estado.
+        Cache::lock($key . ':lock', 5)->block(3, function () use ($key, $apply, &$state) {
+            $state = $this->prune($this->normalize(Cache::get($key, [])));
+            $state = $apply($state);
 
-            if ($viewers) {
-                Cache::put($key, $viewers, self::TTL);
+            if ($state['viewers']) {
+                Cache::put($key, $state, self::TTL);
             } else {
                 Cache::forget($key);
             }
         });
 
-        return $this->others($viewers, $selfId);
+        return $this->payload($state, $selfId);
     }
 
-    /** Descarta a los que no laten hace más de ACTIVE_WINDOW segundos. */
-    private function prune(array $viewers): array
+    /**
+     * Descarta a los que no laten hace más de ACTIVE_WINDOW segundos.
+     * Si el que tenía el control cayó, el control queda libre.
+     */
+    private function prune(array $state): array
     {
         $cutoff = time() - self::ACTIVE_WINDOW;
 
-        return array_filter($viewers, fn ($v) => ($v['seen'] ?? 0) >= $cutoff);
+        $state['viewers'] = array_filter(
+            $state['viewers'],
+            fn ($v) => ($v['seen'] ?? 0) >= $cutoff
+        );
+
+        if ($state['controller'] !== null && ! isset($state['viewers'][$state['controller']])) {
+            $state['controller'] = null;
+        }
+
+        return $state;
+    }
+
+    /**
+     * Arma la respuesta para el usuario que late: otros presentes, quién tiene
+     * el control y si soy yo.
+     *
+     * @return array{viewers:array<int,array{id:int,name:string}>, controller:?array{id:int,name:string}, has_control:bool}
+     */
+    private function payload(array $state, int $selfId): array
+    {
+        $viewers = $state['viewers'];
+        $cid     = $state['controller'];
+
+        $controller = ($cid !== null && isset($viewers[$cid]))
+            ? ['id' => (int) $cid, 'name' => $viewers[$cid]['name']]
+            : null;
+
+        return [
+            'viewers'     => $this->others($viewers, $selfId),
+            'controller'  => $controller,
+            'has_control' => $cid === $selfId,
+        ];
     }
 
     /**
@@ -94,6 +169,21 @@ class OrderPresence
             ->map(fn ($v, $id) => ['id' => (int) $id, 'name' => $v['name']])
             ->values()
             ->all();
+    }
+
+    /**
+     * Tolera el formato viejo (solo mapa de viewers) y normaliza al nuevo shape.
+     */
+    private function normalize($raw): array
+    {
+        if (is_array($raw) && array_key_exists('viewers', $raw)) {
+            return [
+                'controller' => $raw['controller'] ?? null,
+                'viewers'    => is_array($raw['viewers']) ? $raw['viewers'] : [],
+            ];
+        }
+
+        return ['controller' => null, 'viewers' => is_array($raw) ? $raw : []];
     }
 
     private function key(int $orderId): string

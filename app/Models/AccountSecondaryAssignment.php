@@ -19,6 +19,8 @@ class AccountSecondaryAssignment extends Model
         'key_value',
         'key_position',
         'order_item_id',
+        'pack_game_id',
+        'pack_game_title',
     ];
 
     protected $casts = [

@@ -223,6 +223,48 @@
                 <div class="text-xs text-red-600 mt-1">{{ $message }}</div>
             @enderror
 
+            {{-- ── POSPONER RESET (prórroga de recomendación) ── --}}
+            <div class="pt-2 border-t border-zinc-100 space-y-2">
+                @if ($account->isResetSnoozed())
+                    <div class="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs">
+                        <div class="font-medium text-amber-900">
+                            ⏳ Pospuesta · faltan ~{{ $account->resetSnoozeMonthsLeft() }} mes(es)
+                        </div>
+                        <div class="text-amber-800 mt-0.5">
+                            No se recomienda a resetear hasta el
+                            <span class="font-mono">{{ $account->reset_snooze_until->format('Y-m-d') }}</span>
+                        </div>
+                    </div>
+                    <div class="flex gap-2">
+                        <button type="button" onclick="openSnoozeModal()"
+                                class="flex-1 rounded-md bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 ring-1 ring-inset ring-zinc-300 hover:bg-zinc-100">
+                            Cambiar plazo
+                        </button>
+                        <form method="POST" action="{{ route('accounts.reset-snooze.clear', $account) }}"
+                              onsubmit="return confirm('¿Cancelar la prórroga? La cuenta vuelve a evaluarse por compra/reset reales.');">
+                            @csrf
+                            @method('DELETE')
+                            <button type="submit"
+                                    class="rounded-md bg-white px-3 py-1.5 text-sm font-medium text-red-700 ring-1 ring-inset ring-red-300 hover:bg-red-50">
+                                Cancelar
+                            </button>
+                        </form>
+                    </div>
+                @else
+                    <button type="button" onclick="openSnoozeModal()"
+                            class="w-full rounded-md bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 ring-1 ring-inset ring-zinc-300 hover:bg-zinc-100">
+                        ⏳ Posponer reseteo
+                    </button>
+                    <p class="text-xs text-zinc-500">
+                        Usalo cuando no sabés la fecha real de reset (se reseteó desde Sony/Xbox/Nintendo/Steam sin registrarlo).
+                        La ocultás de los recomendados a resetear por la cantidad de meses que indiques.
+                    </p>
+                @endif
+                @error('months')
+                    <div class="text-xs text-red-600">{{ $message }}</div>
+                @enderror
+            </div>
+
             @if ($account->isTimeBlocked())
                 <div class="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs">
                     <div class="font-medium text-amber-900">⏱ Bloqueada por Nintendo (4° uso)</div>
@@ -430,7 +472,7 @@
                                             </button>
                                         </form>
                                         <form method="POST" action="{{ route('accounts.assignments.status', [$account, $as]) }}"
-                                            onsubmit="return confirm('¿Marcar el slot #{{ $as->slot_number }} ({{ $as->platform }}) como REVOCADA?');">
+                                            onsubmit="return confirm('¿Marcar el slot #{{ $as->slot_number }} ({{ $as->platform }}) como REVOCADA?\n\nLa última llave consumida volverá al listado de recuperación.');">
                                             @csrf
                                             <input type="hidden" name="status" value="revoked">
                                             <button type="submit"
@@ -513,7 +555,7 @@
                                             </button>
                                         </form>
                                         <form method="POST" action="{{ route('accounts.secondary-assignments.status', [$account, $as]) }}"
-                                            onsubmit="return confirm('¿Marcar el slot secundario #{{ $as->slot_number }} ({{ $as->platform }}) como REVOCADA?');">
+                                            onsubmit="return confirm('¿Marcar el slot secundario #{{ $as->slot_number }} ({{ $as->platform }}) como REVOCADA?\n\nLa última llave consumida volverá al listado de recuperación.');">
                                             @csrf
                                             <input type="hidden" name="status" value="revoked">
                                             <button type="submit"
@@ -747,7 +789,68 @@
     </div>
 </div>
 
+{{-- ════════ MODAL POSPONER RESETEO ════════ --}}
+<div id="snooze-modal" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-zinc-900/50" onclick="closeSnoozeModal()"></div>
+
+    <div class="absolute inset-0 flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md" onclick="event.stopPropagation()">
+            <form method="POST" action="{{ route('accounts.reset-snooze.set', $account) }}">
+                @csrf
+
+                <div class="px-6 py-4 border-b border-zinc-200">
+                    <h3 class="text-lg font-semibold">Posponer reseteo</h3>
+                    <p class="text-xs text-zinc-500 font-mono mt-1">{{ $account->email }}</p>
+                </div>
+
+                <div class="px-6 py-4 space-y-4 text-sm">
+                    <p class="text-zinc-500">
+                        Indicá en cuántos meses querés que la cuenta vuelva a aparecer en los recomendados
+                        a resetear. Durante ese plazo se oculta, aunque ya cumpla la ventana real de
+                        {{ App\Models\Account::RESET_ELIGIBLE_MONTHS }} meses.
+                        No modifica la fecha de compra ni la de reset reales.
+                    </p>
+
+                    <div>
+                        <label class="block text-sm font-medium text-zinc-700 mb-1">Posponer (meses)</label>
+                        <input type="number" name="months" required min="1" max="60" step="1"
+                               value="{{ old('months', 2) }}"
+                               class="w-full rounded-md border-zinc-300 text-sm">
+                        <p class="text-xs text-zinc-400 mt-1">Entre 1 y 60 meses.</p>
+                    </div>
+                </div>
+
+                <div class="px-6 py-3 border-t border-zinc-200 flex justify-end gap-2">
+                    <button type="button" onclick="closeSnoozeModal()"
+                            class="rounded-md bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 ring-1 ring-inset ring-zinc-300 hover:bg-zinc-100">
+                        Cancelar
+                    </button>
+                    <button type="submit"
+                            class="rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-zinc-700">
+                        Posponer
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <script>
+    function openSnoozeModal() {
+        document.getElementById('snooze-modal').classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+    }
+    function closeSnoozeModal() {
+        document.getElementById('snooze-modal').classList.add('hidden');
+        document.body.style.overflow = '';
+    }
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !document.getElementById('snooze-modal').classList.contains('hidden')) {
+            closeSnoozeModal();
+        }
+    });
+    @error('months') openSnoozeModal(); @enderror
+
     function openDisableModal() {
         document.getElementById('disable-modal').classList.remove('hidden');
         document.body.style.overflow = 'hidden';
