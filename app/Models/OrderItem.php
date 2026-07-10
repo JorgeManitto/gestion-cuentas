@@ -20,6 +20,7 @@ class OrderItem extends Model
         'price_sale',
         'is_preorden',
         'is_pack',
+        'qr',
         'pack_games',
         'account_id',
         'activation_key',

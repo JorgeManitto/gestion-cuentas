@@ -455,6 +455,27 @@ class AccountController extends Controller
     }
 
     /**
+     * POST /accounts/{account}/purchased-date
+     * Actualiza la fecha de compra desde el input inline del listado.
+     * Acepta vacío para limpiarla. Responde JSON para la edición vía fetch.
+     */
+    public function updatePurchasedDate(Request $request, Account $account)
+    {
+        $data = $request->validate([
+            'purchased_date' => 'nullable|date',
+        ]);
+
+        $account->update([
+            'purchased_date' => $data['purchased_date'] ?? null,
+        ]);
+
+        return response()->json([
+            'ok'             => true,
+            'purchased_date' => $account->purchased_date?->format('Y-m-d'),
+        ]);
+    }
+
+    /**
      * DELETE /accounts/{account}/reset-snooze
      * Cancela la prórroga: la cuenta vuelve a evaluarse por las reglas normales.
      */

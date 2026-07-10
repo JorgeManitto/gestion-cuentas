@@ -6,6 +6,7 @@ use App\Http\Controllers\AccountPickerController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BulkGameAssignmentController;
 use App\Http\Controllers\GameController;
+use App\Http\Controllers\MailPreviewController;
 use App\Http\Controllers\VoidGameController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PackController;
@@ -93,6 +94,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/accounts/{account}/usage/increment', [AccountController::class, 'incrementUsage'])->name('accounts.usage.increment');
     Route::post('/accounts/{account}/usage/decrement', [AccountController::class, 'decrementUsage'])->name('accounts.usage.decrement');
     Route::post('/accounts/{account}/reset',           [AccountController::class, 'reset'])->name('accounts.reset');
+    Route::post('/accounts/{account}/purchased-date',  [AccountController::class, 'updatePurchasedDate'])->name('accounts.purchased-date.update');
     Route::post('/accounts/{account}/reset-snooze',   [AccountController::class, 'snoozeReset'])->name('accounts.reset-snooze.set');
     Route::delete('/accounts/{account}/reset-snooze', [AccountController::class, 'clearResetSnooze'])->name('accounts.reset-snooze.clear');
 
@@ -135,5 +137,10 @@ Route::middleware('auth')->group(function () {
 Route::middleware('auth')->group(function () {
     Route::middleware('role:admin')->group(function () {
         Route::resource('users', UserController::class)->except('show');
+
+        // Prueba de correos de entrega
+        Route::get('/mail-preview',        [MailPreviewController::class, 'index'])->name('mail-preview.index');
+        Route::get('/mail-preview/render', [MailPreviewController::class, 'preview'])->name('mail-preview.render');
+        Route::post('/mail-preview/send',  [MailPreviewController::class, 'send'])->name('mail-preview.send');
     });
 });

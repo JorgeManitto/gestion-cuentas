@@ -48,23 +48,50 @@ class WooWebhookController extends Controller
             $platform = WooProduct::normalizePlatform($data['name']);
         }
 
-        // 4) Resolver (o crear) el juego canónico a partir del nombre sin plataforma.
+        // 4) Resolver el juego.
+        //    CLAVE: si el producto YA existe y está vinculado a un juego, respetamos
+        //    ese vínculo y NO lo re-resolvemos por nombre. De lo contrario, cada update
+        //    de Woo (precio/stock/imagen) recalcularía el slug y podría mover el
+        //    producto a otro juego, dejando huérfanas las cuentas que lo apuntaban.
+        //    Solo resolvemos/creamos juego para productos nuevos o sin vincular.
+        $existing  = WooProduct::find($data['id']);
         $canonical = Game::stripPlatform($data['name']);
-        $slug      = Str::slug($canonical);
 
-        $game = Game::firstOrCreate(
-            ['slug' => $slug],
-            [
-                'canonical_name'  => $canonical,
-                'normalized_name' => Str::lower($canonical),
-            ]
-        );
+        if ($existing && $existing->game_id) {
+            $gameId = $existing->game_id;
+
+            // Mantener el NOMBRE del juego en sincronía con el del producto sin
+            // tocar slug ni game_id (los vínculos con cuentas/productos siguen
+            // intactos). Es necesario: AccountDeliveryMail decide la entrega en
+            // preorden por el texto del nombre (canonical_name), así que cuando en
+            // Woo le quitan el "PRE ORDEN" al producto, el juego DEBE perderlo
+            // también o las entregas normales saldrían sin credenciales.
+            $game = Game::find($gameId);
+            if ($game && $canonical !== '' && $game->canonical_name !== $canonical) {
+                $game->update([
+                    'canonical_name'  => $canonical,
+                    'normalized_name' => Str::lower($canonical),
+                ]);
+            }
+        } else {
+            $slug = Str::slug($canonical);
+
+            $game = Game::firstOrCreate(
+                ['slug' => $slug],
+                [
+                    'canonical_name'  => $canonical,
+                    'normalized_name' => Str::lower($canonical),
+                ]
+            );
+            $gameId = $game->id;
+        }
 
         // 5) Upsert del producto. El id viene de WooCommerce (no auto-increment).
+        //    Nunca tocamos game_id de un producto ya vinculado (ver punto 4).
         $product = WooProduct::updateOrCreate(
             ['id' => $data['id']],
             [
-                'game_id'        => $game->id,
+                'game_id'        => $gameId,
                 'name'           => $data['name'],
                 'platform'       => $platform,
                 'image_url'      => $data['image_url'] ?? null,
@@ -77,7 +104,7 @@ class WooWebhookController extends Controller
         return response()->json([
             'ok'         => true,
             'product_id' => $product->id,
-            'game_id'    => $game->id,
+            'game_id'    => $gameId,
             'platform'   => $platform,
         ]);
     }

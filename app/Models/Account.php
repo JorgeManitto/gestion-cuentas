@@ -110,13 +110,13 @@ class Account extends Model
             return 4;   // Xbox dual: 2 Xbox One + 2 Xbox Series
         }
         if ($this->is_dual && in_array($this->platform, ['SWITCH', 'SWITCH_2'], true)) {
-            return 8;  // Switch dual: 4 Switch + 4 Switch 2
+            return 16;  // Switch dual: 8 Switch + 8 Switch 2
         }
 
         return match ($this->platform) {
             'PS5', 'PS4'              => 2,
             'XBOX_ONE', 'XBOX_SERIES' => 2,
-            'SWITCH', 'SWITCH_2'      => 4,
+            'SWITCH', 'SWITCH_2'      => 8,
             'STEAM'                   => 1,
             default                   => 2,
         };
@@ -126,18 +126,21 @@ class Account extends Model
      * Capacidad post-reset: cuántos slots quedan disponibles después de un reset.
      * - PSN penaliza fuerte: a la mitad
      * - Xbox no penaliza: igual a inicial
-     * - Nintendo se desbloquea por tiempo, no por reset count: igual a inicial
+     * - Nintendo penaliza: 8 → 4 (tras el reset la cuenta queda con una sola tanda)
      */
     public function maxAfterReset(): int
     {
         if ($this->is_dual && in_array($this->platform, ['PS4', 'PS5'], true)) {
             return 2;   // 4 → 2
         }
+        if ($this->is_dual && in_array($this->platform, ['SWITCH', 'SWITCH_2'], true)) {
+            return 8;   // 16 → 8 (4 por plataforma)
+        }
 
         return match ($this->platform) {
             'PS5', 'PS4'              => 1,                       // 2 → 1
             'XBOX_ONE', 'XBOX_SERIES' => $this->initialCapacity(),
-            'SWITCH', 'SWITCH_2'      => $this->initialCapacity(),
+            'SWITCH', 'SWITCH_2'      => 4,                       // 8 → 4
             'STEAM'                   => 1,
             default                   => 1,
         };
@@ -276,7 +279,7 @@ class Account extends Model
         return match ($platform) {
             'PS5', 'PS4'              => 2,
             'XBOX_ONE', 'XBOX_SERIES' => 2,
-            'SWITCH', 'SWITCH_2'      => 4,
+            'SWITCH', 'SWITCH_2'      => 8,   // Nintendo: 8 usos (2 tandas de 4, gate temporal en el 4°)
             'STEAM'                   => 1,
             default                   => 2,
         };
@@ -287,7 +290,7 @@ class Account extends Model
         return match ($platform) {
             'PS5', 'PS4'              => 1,   // PSN penaliza: 2 → 1
             'XBOX_ONE', 'XBOX_SERIES' => 2,   // Xbox no penaliza
-            'SWITCH', 'SWITCH_2'      => 4,   // Nintendo es por tiempo, no por reset
+            'SWITCH', 'SWITCH_2'      => 4,   // Nintendo penaliza: 8 → 4
             'STEAM'                   => 1,
             default                   => 1,
         };
@@ -477,8 +480,10 @@ class Account extends Model
 
     /**
      * ¿Es "stock reseteable"?
+     *   - No está en snooze/prórroga
      *   - Todos los slots ocupados (sin cupos libres)
-     *   - Cumplió RESET_ELIGIBLE_MONTHS desde su última asignación
+     *   - Pasaron RESET_ELIGIBLE_MONTHS desde su última asignación activa
+     *   - Pasaron RESET_ELIGIBLE_MONTHS desde la referencia de rotación (reset_date ?? purchased_date)
      */
     public function isResettableStock(?string $platform = null): bool
     {
@@ -494,6 +499,14 @@ class Account extends Model
 
         if ($freeInPool > 0) {
             return false;   // todavía hay cupos para vender en ese pool
+        }
+
+        // No recomendar si el último envío es reciente: deben pasar
+        // RESET_ELIGIBLE_MONTHS desde la última asignación activa.
+        $lastAssignment = $this->lastAssignmentDate();
+        if ($lastAssignment !== null
+            && $lastAssignment->copy()->addMonths(self::RESET_ELIGIBLE_MONTHS)->isFuture()) {
+            return false;
         }
 
         $eligibleAt = $this->resetEligibleAt();

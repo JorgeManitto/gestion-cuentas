@@ -75,6 +75,7 @@ class OrderController extends Controller
             'items.*.isMembership' => 'nullable',
             'items.*.isPreOrden'   => 'nullable',
             'items.*.isPack'       => 'nullable',
+            'items.*.qr'           => 'nullable|string|max:255',
             'items.*.packGames'              => 'nullable|array',
             'items.*.packGames.*.gameId'     => 'nullable',
             'items.*.packGames.*.gameTitle'  => 'nullable|string|max:255',
@@ -159,6 +160,7 @@ class OrderController extends Controller
             'price_sale'           => $data['price_sale'] ?? null,
             'is_preorden'          => filter_var($data['isPreOrden'] ?? false, FILTER_VALIDATE_BOOLEAN),
             'is_pack'              => $isPack,
+            'qr'                   => ($data['qr'] ?? '') !== '' ? $data['qr'] : null,
             'pack_games'           => $isPack ? $this->normalizePackGames($data['packGames'] ?? null) : null,
             'fulfillment_status'   => 'pending',
         ]);

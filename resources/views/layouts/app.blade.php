@@ -52,6 +52,7 @@
             ['route' => 'games.index',            'pattern' => 'games.*',           'label' => 'Juegos',  'icon' => 'M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z M21 12a9 9 0 11-18 0 9 9 0 0118 0z'],
             ['route' => 'users.index', 'pattern' => 'users.*', 'label' => 'Usuarios', 'admin' => true, 'icon' => 'M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1a4 4 0 100-8 4 4 0 000 8z'],
             ['route' => 'accounts.bulk-assign', 'pattern' => 'accounts.bulk-assign*', 'label' => 'Asignación masiva', 'admin' => true,'icon' => 'M12 6v6m0 0l-2-2m2 2l2-2m2 8H9a2 2 0 01-2-2V7a2 2 0 012-2h6a2 2 0 012 2v7a2 2 0 01-2 2z'],
+            ['route' => 'mail-preview.index', 'pattern' => 'mail-preview.*', 'label' => 'Prueba de correos', 'admin' => true, 'icon' => 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z'],
         ];
     @endphp
 

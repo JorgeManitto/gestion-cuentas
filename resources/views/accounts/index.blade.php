@@ -335,7 +335,12 @@
                         {{ $a->reset_date?->format('Y-m-d') ?? '—' }}
                     </td>
                     <td class="px-4 py-2.5 font-mono text-xs text-zinc-500">
-                        {{ $a->purchased_date?->format('Y-m-d') ?? '—' }}
+                        <input type="date"
+                               value="{{ $a->purchased_date?->format('Y-m-d') }}"
+                               data-purchased-date
+                               data-original="{{ $a->purchased_date?->format('Y-m-d') }}"
+                               data-url="{{ route('accounts.purchased-date.update', $a) }}"
+                               class="w-32 rounded border border-transparent bg-transparent px-1 py-0.5 font-mono text-xs text-zinc-500 hover:border-zinc-300 focus:border-zinc-400 focus:bg-white focus:outline-none">
                     </td>
                     <td class="px-4 py-2.5">
                         <div class="flex flex-col gap-1 items-start">
@@ -370,5 +375,47 @@
 <div class="mt-4">
     {{ $accounts->links() }}
 </div>
+
+<script>
+    document.addEventListener('change', function (e) {
+        const input = e.target.closest('input[data-purchased-date]');
+        if (!input) return;
+
+        const token = document.querySelector('meta[name="csrf-token"]')?.content;
+        const original = input.dataset.original ?? '';
+
+        // No cambies si el valor es el mismo que ya estaba guardado.
+        if ((input.value || '') === original) return;
+
+        // Evita envíos concurrentes sin deshabilitar el input (disabled roba el foco).
+        if (input.dataset.saving === '1') return;
+        input.dataset.saving = '1';
+
+        fetch(input.dataset.url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': token,
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify({ purchased_date: input.value || null }),
+        })
+        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(data => {
+            const saved = data.purchased_date ?? '';
+            // Solo reescribir si difiere: reasignar value mueve el cursor/foco.
+            if (input.value !== saved) input.value = saved;
+            input.dataset.original = saved;
+            input.classList.add('!border-emerald-400');
+            setTimeout(() => input.classList.remove('!border-emerald-400'), 800);
+        })
+        .catch(() => {
+            input.value = original;
+            input.classList.add('!border-red-400');
+            setTimeout(() => input.classList.remove('!border-red-400'), 1500);
+        })
+        .finally(() => { input.dataset.saving = '0'; });
+    });
+</script>
 
 @endsection

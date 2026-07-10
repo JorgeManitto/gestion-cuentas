@@ -26,6 +26,8 @@ class AccountDeliveryMail extends Mailable implements ShouldQueue
         'PS4'              => 'https://youtu.be/OUiaFjFZC58',
         'PS5'              => 'https://youtu.be/k3zuUDh8rC0',
         'PS5_PREORDEN'     => 'https://youtu.be/3konL3Y1PBs',
+        'PS4_QR'           => 'https://youtu.be/3konL3Y1PBs',
+        'PS5_QR'           => 'https://youtu.be/3konL3Y1PBs',
         'XBOX_ONE'         => 'https://youtu.be/CL__ScG1AHU',
         'XBOX_SERIES'      => 'https://youtu.be/CL__ScG1AHU',
         'SWITCH'           => 'https://youtu.be/B0L_EFg6UkA',
@@ -61,19 +63,25 @@ class AccountDeliveryMail extends Mailable implements ShouldQueue
 
         $general    = self::generalPlatform($platform);
         $isPreorden = self::isPreorden($item);
+        $isQr       = self::isQr($item);
+
+        // Tanto la preorden como los productos con QR se entregan SIN credenciales.
+        // La diferencia: el QR no muestra el mensaje/subject de preorden.
+        $hideCredentials = $isPreorden || $isQr;
 
         $this->data = [
             'customerName'    => $item->order->customer_name,
             'gameTitle'       => $gameTitle,
-            'accountEmail'    => $isPreorden ? null : $account?->email,
-            'accountPass'     => $isPreorden ? null : $account?->password,
-            'activationKey'   => $isPreorden ? null : $keyValue,
+            'accountEmail'    => $hideCredentials ? null : $account?->email,
+            'accountPass'     => $hideCredentials ? null : $account?->password,
+            'activationKey'   => $hideCredentials ? null : $keyValue,
             'platform'        => $general,
             'orderId'         => $item->order->wc_order_id,
-            'tutorialUrl'     => self::resolveTutorial($platform, $isPreorden),
+            'tutorialUrl'     => self::resolveTutorial($platform, $isPreorden, $isQr),
             'supportUrl'      => config('services.delivery_mail.support_url'),
             'isPreorden'      => $isPreorden,
-            'showCredentials' => ! $isPreorden && in_array($general, ['playstation', 'nintendo'], true),
+            'isQr'            => $isQr,
+            'showCredentials' => ! $hideCredentials && in_array($general, ['playstation', 'nintendo'], true),
         ];
     }
 
@@ -90,8 +98,14 @@ class AccountDeliveryMail extends Mailable implements ShouldQueue
 
     public function content(): Content
     {
+        // PlayStation (PS4/PS5) usa su propio template con branding e imágenes.
+        // El resto sigue con el genérico.
+        $view = $this->data['platform'] === 'playstation'
+            ? 'emails.account-delivery-playstation'
+            : 'emails.account-delivery';
+
         return new Content(
-            view: 'emails.account-delivery',
+            view: $view,
             with: $this->data,
         );
     }
@@ -121,11 +135,29 @@ class AccountDeliveryMail extends Mailable implements ShouldQueue
     }
 
     /**
-     * Elige el tutorial: en preorden busca la variante "{PLATAFORMA}_PREORDEN"
-     * y si no existe usa DEFAULT_PREORDEN; en venta normal, el de la consola.
+     * ¿El producto se entrega por QR? Determinado por el atributo "qr" del
+     * producto en Woo (persistido en el item). Presencia = producto QR: la
+     * entrega omite credenciales pero NO muestra el mensaje de preorden.
      */
-    private static function resolveTutorial(?string $platform, bool $isPreorden): string
+    private static function isQr(OrderItem $item): bool
     {
+        return filled($item->qr);
+    }
+
+    /**
+     * Elige el tutorial según la consola específica ($platform: PS4, PS5, …):
+     *   - QR:       "{PLATAFORMA}_QR"      (cae a la consola y al fallback general)
+     *   - preorden: "{PLATAFORMA}_PREORDEN" (cae a DEFAULT_PREORDEN)
+     *   - normal:   "{PLATAFORMA}"          (cae al fallback general)
+     */
+    private static function resolveTutorial(?string $platform, bool $isPreorden, bool $isQr = false): string
+    {
+        if ($isQr) {
+            return self::TUTORIALS[$platform . '_QR']
+                ?? self::TUTORIALS[$platform]
+                ?? self::TUTORIAL_FALLBACK;
+        }
+
         if ($isPreorden) {
             return self::TUTORIALS[$platform . '_PREORDEN']
                 ?? self::TUTORIALS['DEFAULT_PREORDEN'];

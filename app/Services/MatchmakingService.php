@@ -84,6 +84,8 @@ class MatchmakingService
         // ── Construir candidatos ── (sin cambios desde acá)
         $candidates = [];
         $blockedByWindow = 0;
+        $blockedByNintendo = 0;
+        $nintendoUnlockAt  = null;
 
         foreach ($accounts as $acc) {
             $slotPlatform = $acc->resolveSlotPlatform($item->platform_normalized);
@@ -94,20 +96,25 @@ class MatchmakingService
                 continue;
             }
 
+            // Regla Nintendo: al 4° uso la cuenta queda bloqueada 30 días y NO
+            // se puede asignar hasta cumplir la ventana. La excluimos por completo
+            // (aunque le queden cupos libres de la "segunda tanda" de 4).
+            if ($acc->isTimeBlocked()) {
+                $blockedByNintendo++;
+                $unlockAt = $acc->timeBlockUnlockAt();
+                if ($unlockAt && ($nintendoUnlockAt === null || $unlockAt->lt($nintendoUnlockAt))) {
+                    $nintendoUnlockAt = $unlockAt;
+                }
+                continue;
+            }
+
             $remaining     = $acc->freeSlotsFor($slotPlatform);
             $capacity      = $acc->capacityFor($slotPlatform);
-            $isTimeBlocked = $acc->isTimeBlocked();
-            $unlockAt      = $acc->timeBlockUnlockAt();
 
             if ($remaining < self::MIN_FREE_SLOTS) continue;
 
             // ── NUEVO: sin keys disponibles no se puede entregar ──
             if ($acc->keys->whereNull('used_at')->isEmpty()) continue;
-
-            $blockReason = null;
-            if ($isTimeBlocked && $unlockAt) {
-                $blockReason = "Bloqueada por regla Nintendo (4° uso). Desbloquea " . $unlockAt->format('d/m/Y');
-            }
 
             $candidates[] = new Candidate(
                 account:           $acc,
@@ -115,9 +122,9 @@ class MatchmakingService
                 usedSlots:         $capacity - $remaining,
                 capacity:          $capacity,
                 isPostReset:       $acc->isPostReset(),
-                isTimeBlocked:     $isTimeBlocked,
-                timeBlockUnlockAt: $unlockAt,
-                blockReason:       $blockReason,
+                isTimeBlocked:     false,
+                timeBlockUnlockAt: null,
+                blockReason:       null,
                 selectionReason: Candidate::buildSelectionReason($acc, $remaining, $slotPlatform),
             );
         }
@@ -127,6 +134,15 @@ class MatchmakingService
                 return new MatchResult(
                     candidates: [],
                     emptyReason: "Hay {$blockedByWindow} cuenta(s) compatible(s) pero están fuera de la ventana de venta (membresía por vencer o vencida).",
+                );
+            }
+            if ($blockedByNintendo > 0) {
+                $when = $nintendoUnlockAt
+                    ? " Se habilita(n) desde el {$nintendoUnlockAt->format('d/m/Y')}."
+                    : '';
+                return new MatchResult(
+                    candidates: [],
+                    emptyReason: "Hay {$blockedByNintendo} cuenta(s) compatible(s) bloqueada(s) por la regla Nintendo (4° uso: espera 30 días).{$when}",
                 );
             }
             return new MatchResult(
@@ -160,7 +176,12 @@ class MatchmakingService
         if ($account->isMembershipSaleClosed()) {
             return false;
         }
-        
+
+        // Regla Nintendo: cuenta bloqueada por el 4° uso no se puede asignar
+        // hasta cumplir los 30 días.
+        if ($account->isTimeBlocked()) {
+            return false;
+        }
 
         $slotPlatform = $account->resolveSlotPlatform($item->platform_normalized);
         if ($slotPlatform === null || $account->freeSlotsFor($slotPlatform) < self::MIN_FREE_SLOTS) {
@@ -347,6 +368,10 @@ class MatchmakingService
             ->where('status', 'active')
             ->whereIn('platform', ['PS4', 'PS5'])
             ->whereHas('keys', fn ($q) => $q->whereNull('used_at'), '>=', 2)
+
+            // No ofrecer como stock secundario cuentas cuyo juego es de PRE ORDEN.
+            ->whereDoesntHave('game.products', fn ($q) => $q
+                ->where('name', 'like', '%pre%orden%'))
 
             ->whereDoesntHave('assignments', fn ($q) => $q
                 ->where('status', 'active')
