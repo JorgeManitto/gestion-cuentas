@@ -259,25 +259,18 @@
                     <td class="px-4 py-2.5">
                         @if ($a->game)
                             @php
-                                $platformNormalized = str_replace([' ', '-'], '', strtolower($a->platform));
-                                if ($platformNormalized === 'xboxseriesx|s') {
-                                    $platformNormalized = 'xboxseries';
-                                }
-
-                                // Producto que coincide con la plataforma de la cuenta
-                                $match = $a->game->products->first(function ($p) use ($platformNormalized) {
-                                    $pp = str_replace([' ', '-'], '', strtolower($p->platform));
-                                    if ($pp === 'xboxseriesx|s') $pp = 'xboxseries';
-                                    return $pp === $platformNormalized;
-                                });
-
-                                // Tapa: el producto de la plataforma; si no hay, cualquier producto del juego
-                                $product = $match ?? $a->game->products->first();
+                                // Reusa coverProduct() del modelo (normalizePlatform) para no fallar
+                                // con variantes como "Switch2" vs SWITCH_2, que la normalización inline
+                                // (solo espacios/guiones) no matcheaba → caía a otro producto (portada equivocada).
+                                $match = $a->coverProduct();
 
                                 // Nombre: el del producto correcto (limpio); si no hay match de plataforma,
                                 // el nombre del juego SIN sufijo, así no dice "STEAM" en una cuenta PS5.
                                 $name  = $match ? \App\Models\Game::stripPlatform($match->name) : $a->game->displayName();
-                                $cover = $product?->image_url;
+
+                                // Tapa: la del producto de la plataforma; si no hay ninguno, cae a cualquier
+                                // producto del juego (el arte suele ser el mismo entre plataformas).
+                                $cover = ($match ?? $a->game->products->first())?->image_url;
                             @endphp
                            <a href="{{ route('accounts.show', $a) }}" class="flex items-center gap-2 max-w-[240px]">
                                 @if ($cover)

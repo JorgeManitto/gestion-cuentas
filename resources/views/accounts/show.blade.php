@@ -109,16 +109,27 @@
         <div class="rounded-lg border border-zinc-200 bg-white p-5 space-y-3">
             <div>
                 <div class="text-xs font-medium uppercase tracking-wide text-zinc-500 mb-1">Juego</div>
-                <div class="font-medium">
-                    @if ($wooProduct)
-                        {{ $wooProduct->name }}
-                        @else
-                            @if ($account->game)
-                                {{ $account->game->canonical_name }} canonical_name
-                            @else
-                                <span class="text-zinc-400">—</span>
-                            @endif
+                @php
+                    // Portada: el producto de la plataforma; si no hay, cualquier producto del juego.
+                    $coverUrl = $wooProduct?->image_url ?? $account->game?->products->first()?->image_url;
+                @endphp
+                <div class="flex items-center gap-3">
+                    @if ($coverUrl)
+                        <img src="{{ $coverUrl }}" alt=""
+                             class="w-12 h-16 object-cover rounded shrink-0 bg-zinc-100 ring-1 ring-zinc-200"
+                             onerror="this.style.display='none'">
                     @endif
+                    <div class="font-medium">
+                        @if ($wooProduct)
+                            {{ $wooProduct->name }}
+                            @else
+                                @if ($account->game)
+                                    {{ $account->game->canonical_name }} canonical_name
+                                @else
+                                    <span class="text-zinc-400">—</span>
+                                @endif
+                        @endif
+                    </div>
                 </div>
             </div>
             <hr class="border-zinc-100">
