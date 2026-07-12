@@ -155,6 +155,7 @@ function renderAddItemCard(product) {
     const card = document.createElement('div');
     card.className = 'add-item-card rounded-lg border border-zinc-200 bg-white p-3 flex flex-col hover:border-zinc-400 transition';
     card.dataset.gameId = product.game_id;
+    card.dataset.wcId   = product.id;
 
     const cover = product.image_url
         ? `<img src="${aiEsc(product.image_url)}" alt="" class="w-full aspect-[3/4] object-cover rounded bg-zinc-100" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'w-full aspect-[3/4] rounded bg-zinc-100 flex items-center justify-center text-zinc-400 text-xs',textContent:'sin imagen'}))">`
@@ -172,6 +173,7 @@ function renderAddItemCard(product) {
         </div>
         <button type="button"
                 data-game-id="${aiEsc(product.game_id)}"
+                data-wc-id="${aiEsc(product.id)}"
                 data-platform="${aiEsc(product.platform || '')}"
                 data-name="${aiEsc(product.name)}"
                 class="add-item-pick-btn mt-2 w-full rounded bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-medium px-2 py-1.5 transition">
@@ -180,14 +182,14 @@ function renderAddItemCard(product) {
 
     card.querySelector('.add-item-pick-btn').addEventListener('click', (e) => {
         const b = e.currentTarget.dataset;
-        selectAddItem(b.gameId, b.platform, b.name, card);  
+        selectAddItem(b.gameId, b.wcId, b.platform, b.name, card);
     });
     return card;
 }
 
 /* Marca el producto sin enviar nada todavía. */
-function selectAddItem(gameId, platform, name, selectedCard) {
-    addItem.selected = { gameId, platform, name };
+function selectAddItem(gameId, wcId, platform, name, selectedCard) {
+    addItem.selected = { gameId, wcId, platform, name };
 
     // Resaltar SOLO la card clickeada, resetear el resto
     document.querySelectorAll('.add-item-card').forEach(card => {
@@ -226,7 +228,7 @@ function clearAddItemSelection() {
 async function confirmAddItem() {
     if (!addItem.selected) return;
 
-    const { gameId, platform } = addItem.selected;
+    const { gameId, wcId, platform } = addItem.selected;
     const replaces = Array.from(document.querySelectorAll('.add-item-replace:checked')).map(c => c.value);
 
     const acceptBtn = document.getElementById('add-item-accept');
@@ -237,6 +239,7 @@ async function confirmAddItem() {
     const fd = new FormData();
     fd.append('_token', document.getElementById('add-item-csrf').value);
     fd.append('game_id', gameId);
+    if (wcId) fd.append('wc_product_id', wcId);
     if (platform) fd.append('platform', platform);
     replaces.forEach(id => fd.append('replaces[]', id));
 

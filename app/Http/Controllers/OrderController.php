@@ -742,19 +742,24 @@ class OrderController extends Controller
     public function addItem(Request $request, Order $order): JsonResponse
     {
         $validated = $request->validate([
-            'game_id'     => 'required|integer|exists:games,id',
-            'platform'    => 'nullable|string|max:32',
-            'replaces'    => 'nullable|array',
-            'replaces.*'  => 'integer|exists:order_items,id',
+            'game_id'       => 'required|integer|exists:games,id',
+            'wc_product_id' => 'nullable|integer|exists:woo_products,id',
+            'platform'      => 'nullable|string|max:32',
+            'replaces'      => 'nullable|array',
+            'replaces.*'    => 'integer|exists:order_items,id',
         ]);
 
         try {
             $newItem = DB::transaction(function () use ($order, $validated) {
 
-                // Producto Woo para nombre/imagen/wc_product_id (resuelto por game_id [+ plataforma])
-                $woo = WooProduct::where('game_id', $validated['game_id'])
-                    ->when($validated['platform'] ?? null, fn ($q, $p) => $q->where('platform', $p))
-                    ->first();
+                // Producto Woo para nombre/imagen/wc_product_id.
+                // El modal manda el wc_product_id exacto elegido; sólo si no viene
+                // caemos al viejo resuelto por game_id [+ plataforma].
+                $woo = ! empty($validated['wc_product_id'])
+                    ? WooProduct::find($validated['wc_product_id'])
+                    : WooProduct::where('game_id', $validated['game_id'])
+                        ->when($validated['platform'] ?? null, fn ($q, $p) => $q->where('platform', $p))
+                        ->first();
 
                 $model              = $validated['platform'] ?? $woo?->platform;        // "PS4"
                 $family             = $this->platformFamily($model);                    // "PlayStation"

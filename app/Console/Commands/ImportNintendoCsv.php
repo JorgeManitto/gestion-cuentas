@@ -118,32 +118,52 @@ class ImportNintendoCsv extends Command
                 continue;
             }
 
-            // Dedupe DENTRO de la cuenta: dos UUIDs distintos que resuelven al mismo
-            // juego local (games CSV trae duplicados por variante de plataforma) deben
-            // producir UNA sola fila. Clave: game_id si resolvió; si no, el UUID crudo
-            // (así dos juegos faltantes DISTINTOS sí quedan separados).
-            $seen = [];   // dedupKey => índice en $planned (dentro de esta cuenta)
+            // Dedupe DENTRO de la cuenta combinando DOS señales, porque el games CSV trae
+            // el mismo juego repetido en games[] de formas distintas:
+            //   (a) mismo game_id local (dos id_woo del mismo juego) → colapsar por game_id;
+            //   (b) una entrada resuelve y otra no (sin id_woo / otro sufijo de plataforma),
+            //       pero comparten título base → la "null" se adosa a la que resolvió.
+            // Identidad final = 'g:'.game_id si resolvió (directa o vía hermano de misma base);
+            // si no, la base del título ('b:...') o el uuid crudo si es colgado ('u:...').
+            // Así NO reaparece el duplicado (a) y se elimina la fila "vacía" de (b).
+            $resolved     = [];   // uuid => ?int game_id
+            $baseToGameId = [];   // baseKey => game_id de algún hermano que sí resolvió
             foreach ($gameUuids as $gu) {
-                $gameId = $this->resolveGameId($gu);
-                if ($gameId === null) {
-                    $this->unresolvedGames[$gu] = $this->gamesCsvById[$gu]['title'] ?? '(colgado, no está en games CSV)';
+                $gid = $this->resolveGameId($gu);
+                $resolved[$gu] = $gid;
+                $bk = $this->baseKey($gu);
+                if ($gid !== null && ! isset($baseToGameId[$bk])) {
+                    $baseToGameId[$bk] = $gid;
                 }
-                $dedupKey = $gameId !== null ? 'g:' . $gameId : 'u:' . $gu;
+            }
 
-                if (isset($seen[$dedupKey])) {
-                    // Duplicado: no se crea fila; sus assignments van a la superviviente.
-                    $pairIndex[$acctUuid . '|' . $gu] = $seen[$dedupKey];
-                    $stats['dup_colapsados']++;
-                    continue;
+            $groups = [];   // identidad => ['gameId' => ?int, 'uuids' => [...]]
+            foreach ($gameUuids as $gu) {
+                $bk  = $this->baseKey($gu);
+                $gid = $resolved[$gu] ?? null;
+                if ($gid === null && isset($baseToGameId[$bk])) {
+                    $gid = $baseToGameId[$bk];   // (b) adosar la null a su hermano resuelto
                 }
+                $identity = $gid !== null ? 'g:' . $gid : $bk;
+                $groups[$identity] ??= ['gameId' => $gid, 'uuids' => []];
+                $groups[$identity]['uuids'][] = $gu;
+            }
 
+            foreach ($groups as $info) {
                 $i = count($planned);
-                $planned[] = ['acctUuid' => $acctUuid, 'gameUuid' => $gu, 'gameId' => $gameId, 'fields' => $fields, 'poolKeys' => $poolKeys];
-                $seen[$dedupKey] = $i;
-                $pairIndex[$acctUuid . '|' . $gu] = $i;
+                $planned[] = ['acctUuid' => $acctUuid, 'gameUuid' => $info['uuids'][0], 'gameId' => $info['gameId'], 'fields' => $fields, 'poolKeys' => $poolKeys];
                 $firstByAcct[$acctUuid] ??= $i;
-                if ($gameId === null) {
+                foreach ($info['uuids'] as $u) {
+                    $pairIndex[$acctUuid . '|' . $u] = $i;
+                }
+                $stats['dup_colapsados'] += count($info['uuids']) - 1;
+
+                if ($info['gameId'] === null) {
+                    // Grupo entero sin resolver → juego realmente ausente del catálogo.
                     $stats['game_null']++;
+                    foreach ($info['uuids'] as $u) {
+                        $this->unresolvedGames[$u] = $this->gamesCsvById[$u]['title'] ?? '(colgado, no está en games CSV)';
+                    }
                 }
             }
         }
@@ -314,6 +334,27 @@ class ImportNintendoCsv extends Command
             return (int) $this->normToGameId[$norm];
         }
         return null;
+    }
+
+    /**
+     * Identidad "base" de un juego para deduplicar dentro de una cuenta: título sin el
+     * sufijo de plataforma (stripPlatform), en minúsculas y sin espacios de más. Así
+     * "Tomodachi Life ... - Nintendo Switch" y "... - Nintendo Switch 2" caen en el mismo
+     * grupo. Los uuids "colgados" (sin fila en games CSV) quedan únicos por su propio uuid.
+     */
+    private function baseKey(string $uuid): string
+    {
+        $title = $this->gamesCsvById[$uuid]['title'] ?? null;
+        if (! $title) {
+            return 'u:' . $uuid;
+        }
+        // Normalización agresiva: sin sufijo de plataforma, minúsculas y SOLO alfanumérico.
+        // Une variantes del mismo juego que difieren por espacio/puntuación ("FC26" vs
+        // "FC 26", "Assassin's Creed" vs "Assassins Creed"). Al ser dedup SOLO dentro de la
+        // misma cuenta, el riesgo de fusionar juegos distintos es mínimo.
+        $base = mb_strtolower(Game::stripPlatform($title));
+        $base = preg_replace('/[^a-z0-9]+/', '', $base);
+        return ($base ?? '') !== '' ? 'b:' . $base : 'u:' . $uuid;
     }
 
     /** Mapea una fila de accounts_rows.csv a los campos de la tabla accounts (sin game_id). */
