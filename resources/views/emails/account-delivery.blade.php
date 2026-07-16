@@ -40,6 +40,11 @@
                 <span style="font-weight:600;color:#111827;">Contraseña:</span>
                 <span style="font-family:monospace;color:#111827;font-weight:600;">{{ $accountPass }}</span>
               </div>
+
+              {{-- Aviso de seguridad de la cuenta --}}
+              <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:12px 14px;margin:12px 0 4px 0;color:#7c2d12;font-size:13px;line-height:1.5;">
+                🛡️ <strong>Importante:</strong> No modifique el correo, contraseña, código ni la verificación en dos pasos (2FA). Compartir la cuenta o usarla en varias consolas ocasionará la pérdida del acceso y de la garantía de PlayXDigital.
+              </div>
             @endif
 
             @if ($activationKey)

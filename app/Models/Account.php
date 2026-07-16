@@ -103,23 +103,8 @@ class Account extends Model
      */
     public function initialCapacity(): int
     {
-        if ($this->is_dual && in_array($this->platform, ['PS4', 'PS5'], true)) {
-            return 4;   // PS dual: 2 PS4 + 2 PS5
-        }
-        if ($this->is_dual && in_array($this->platform, ['XBOX_ONE', 'XBOX_SERIES'], true)) {
-            return 4;   // Xbox dual: 2 Xbox One + 2 Xbox Series
-        }
-        if ($this->is_dual && in_array($this->platform, ['SWITCH', 'SWITCH_2'], true)) {
-            return 16;  // Switch dual: 8 Switch + 8 Switch 2
-        }
-
-        return match ($this->platform) {
-            'PS5', 'PS4'              => 2,
-            'XBOX_ONE', 'XBOX_SERIES' => 2,
-            'SWITCH', 'SWITCH_2'      => 8,
-            'STEAM'                   => 1,
-            default                   => 2,
-        };
+        return collect($this->coveredPlatforms())
+            ->sum(fn ($p) => $this->initialCapacityPerPlatform($p));
     }
 
     /**
@@ -130,20 +115,8 @@ class Account extends Model
      */
     public function maxAfterReset(): int
     {
-        if ($this->is_dual && in_array($this->platform, ['PS4', 'PS5'], true)) {
-            return 2;   // 4 → 2
-        }
-        if ($this->is_dual && in_array($this->platform, ['SWITCH', 'SWITCH_2'], true)) {
-            return 8;   // 16 → 8 (4 por plataforma)
-        }
-
-        return match ($this->platform) {
-            'PS5', 'PS4'              => 1,                       // 2 → 1
-            'XBOX_ONE', 'XBOX_SERIES' => $this->initialCapacity(),
-            'SWITCH', 'SWITCH_2'      => 4,                       // 8 → 4
-            'STEAM'                   => 1,
-            default                   => 1,
-        };
+        return collect($this->coveredPlatforms())
+            ->sum(fn ($p) => $this->maxAfterResetPerPlatform($p));
     }
 
     /**
@@ -164,11 +137,24 @@ class Account extends Model
     }
 
     /**
+     * ¿La cuenta ya fue efectivamente reseteada?
+     *
+     * `reset_date` guarda la fecha del PRÓXIMO reset (viene de `next_reset_date` en el
+     * import de Nintendo). Mientras esa fecha sea futura la cuenta TODAVÍA no se reseteó
+     * y conserva su capacidad inicial (8 usos). Recién cuando la fecha llega —queda en el
+     * pasado— pasa al régimen reducido (4 usos).
+     */
+    public function hasBeenReset(): bool
+    {
+        return $this->reset_date !== null && ! $this->reset_date->isFuture();
+    }
+
+    /**
      * ¿Está reseteada (régimen post-reset activo)?
      */
     public function isPostReset(): bool
     {
-        return $this->reset_date !== null;
+        return $this->hasBeenReset();
     }
 
     /** Qué slot-platform consume este pedido en esta cuenta. */
@@ -276,10 +262,16 @@ class Account extends Model
 
     private function initialCapacityPerPlatform(string $platform): int
     {
+        // Nintendo dual: el total de 8 usos se reparte 4 + 4 entre Switch 1 y Switch 2.
+        // Exclusiva (una sola plataforma) conserva los 8 usos completos.
+        if ($this->is_dual && in_array($platform, ['SWITCH', 'SWITCH_2'], true)) {
+            return 4;
+        }
+
         return match ($platform) {
             'PS5', 'PS4'              => 2,
             'XBOX_ONE', 'XBOX_SERIES' => 2,
-            'SWITCH', 'SWITCH_2'      => 8,   // Nintendo: 8 usos (2 tandas de 4, gate temporal en el 4°)
+            'SWITCH', 'SWITCH_2'      => 8,   // Nintendo exclusiva: 8 usos
             'STEAM'                   => 1,
             default                   => 2,
         };
@@ -287,10 +279,15 @@ class Account extends Model
 
     private function maxAfterResetPerPlatform(string $platform): int
     {
+        // Nintendo dual post-reset: el total de 4 usos se reparte 2 + 2 (2 Switch 1 + 2 Switch 2).
+        if ($this->is_dual && in_array($platform, ['SWITCH', 'SWITCH_2'], true)) {
+            return 2;
+        }
+
         return match ($platform) {
             'PS5', 'PS4'              => 1,   // PSN penaliza: 2 → 1
             'XBOX_ONE', 'XBOX_SERIES' => 2,   // Xbox no penaliza
-            'SWITCH', 'SWITCH_2'      => 4,   // Nintendo penaliza: 8 → 4
+            'SWITCH', 'SWITCH_2'      => 4,   // Nintendo exclusiva penaliza: 8 → 4
             'STEAM'                   => 1,
             default                   => 1,
         };
@@ -303,7 +300,7 @@ class Account extends Model
             return 0;
         }
 
-        return $this->reset_date
+        return $this->hasBeenReset()
             ? $this->maxAfterResetPerPlatform($platform)
             : $this->initialCapacityPerPlatform($platform);
     }

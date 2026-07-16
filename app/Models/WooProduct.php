@@ -37,7 +37,7 @@ class WooProduct extends Model
         $p = mb_strtoupper(trim($raw));
 
         return match (true) {
-            str_contains($p, 'SWITCH 2'), str_contains($p, 'SWITCH2')  => 'SWITCH_2',
+            str_contains($p, 'SWITCH 2'), str_contains($p, 'SWITCH2'), str_contains($p, 'SWITCH_2')  => 'SWITCH_2',
             str_contains($p, 'SWITCH')                                 => 'SWITCH',
             str_contains($p, 'PS5'), str_contains($p, 'PLAYSTATION 5') => 'PS5',
             str_contains($p, 'PS4'), str_contains($p, 'PLAYSTATION 4') => 'PS4',

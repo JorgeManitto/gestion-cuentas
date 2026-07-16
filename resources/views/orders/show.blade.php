@@ -594,6 +594,34 @@ document.addEventListener('click', async (e) => {
     }
 });
 </script>
+<script>
+document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-resend-delivery]');
+    if (!btn) return;
+    if (!confirm('¿Reenviar el correo con las credenciales y la llave al cliente?')) return;
+
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Reenviando…';
+    try {
+        const res = await fetch(btn.dataset.url, {
+            method: 'POST',
+            headers: {
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+            },
+        });
+        const data = await res.json();
+        showToast(data.message || (res.ok ? 'Correo reenviado.' : 'No se pudo reenviar.'), res.ok ? 'success' : 'error');
+    } catch (err) {
+        showToast('Error de red.', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = original;
+    }
+});
+</script>
 
 {{-- Modal: región para Orden de Compra --}}
 <div id="po-region-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 p-4">

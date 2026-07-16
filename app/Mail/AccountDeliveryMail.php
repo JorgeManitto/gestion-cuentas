@@ -98,11 +98,13 @@ class AccountDeliveryMail extends Mailable implements ShouldQueue
 
     public function content(): Content
     {
-        // PlayStation (PS4/PS5) usa su propio template con branding e imágenes.
-        // El resto sigue con el genérico.
-        $view = $this->data['platform'] === 'playstation'
-            ? 'emails.account-delivery-playstation'
-            : 'emails.account-delivery';
+        // PlayStation (PS4/PS5) y Nintendo (Switch) usan su propio template con
+        // branding e imágenes. El resto sigue con el genérico.
+        $view = match ($this->data['platform']) {
+            'playstation' => 'emails.account-delivery-playstation',
+            'nintendo'    => 'emails.account-delivery-nintendo',
+            default       => 'emails.account-delivery',
+        };
 
         return new Content(
             view: $view,

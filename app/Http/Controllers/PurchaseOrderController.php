@@ -49,8 +49,9 @@ class PurchaseOrderController extends Controller
         ];
 
         // --- Datos para pestaña "Stock" ---
-        $stockAccounts = collect();
-        $uniqueRegions = collect();
+        $stockAccounts  = collect();
+        $uniqueRegions  = collect();
+        $uniqueConsoles = collect();
         if ($tab === 'stock') {
             $stockAccounts = Account::query()
                 ->whereNull('game_id')
@@ -62,11 +63,11 @@ class PurchaseOrderController extends Controller
                     $q->where(function ($w) use ($term) {
                         $w->whereRaw('LOWER(email) LIKE ?', [$term])
                           ->orWhereRaw('LOWER(region) LIKE ?', [$term])
-                          ->orWhereRaw('LOWER(platform) LIKE ?', [$term]);
+                          ->orWhereRaw('LOWER(type_console) LIKE ?', [$term]);
                     });
                 })
-                ->when($request->filled('platform') && $request->platform !== 'all',
-                    fn ($q) => $q->where('platform', $request->platform))
+                ->when($request->filled('type_console') && $request->type_console !== 'all',
+                    fn ($q) => $q->where('type_console', $request->type_console))
                 ->when($request->filled('region') && $request->region !== 'all',
                     fn ($q) => $q->where('region', $request->region))
                 ->orderByRaw('region IS NULL, region ASC')
@@ -78,6 +79,13 @@ class PurchaseOrderController extends Controller
                 ->distinct()
                 ->orderBy('region')
                 ->pluck('region');
+
+            $uniqueConsoles = Account::query()
+                ->whereNull('game_id')
+                ->whereNotNull('type_console')
+                ->distinct()
+                ->orderBy('type_console')
+                ->pluck('type_console');
         }
 
         // Catálogo de juegos para autocompletar en el modal "Crear OC"
@@ -105,7 +113,7 @@ class PurchaseOrderController extends Controller
             // dd($orders);
         return view('purchase-orders.index', compact(
             'orders', 'stats', 'coversByTitle', 'tab',
-            'stockAccounts', 'uniqueRegions',
+            'stockAccounts', 'uniqueRegions', 'uniqueConsoles',
             'gamesCatalog', 'stockForComplete',
             'linkableAccounts'
         ));
@@ -124,6 +132,7 @@ class PurchaseOrderController extends Controller
             'quantity'     => 'required|integer|min:1|max:50',
             'arrival_date' => 'nullable|date',
             'is_dual'      => 'nullable|boolean',
+            'notes_region' => 'nullable|string|max:2000',
         ]);
 
         $qty    = $data['quantity'];
@@ -137,6 +146,7 @@ class PurchaseOrderController extends Controller
                     'platform'     => $data['platform'],
                     'is_dual'      => $isDual,
                     'region'       => $data['region'] ?: 'sin especificar',
+                    'notes_region' => $data['notes_region'] ?? null,
                     'quantity'     => 1,
                     'status'       => 'pending',
                     'arrival_date' => $data['arrival_date'] ?? null,
@@ -299,6 +309,17 @@ class PurchaseOrderController extends Controller
 
         $isDual      = $request->boolean('is_dual');
         $accountType = $data['account_type'] ?? 'INDEPENDIENTE';
+
+        // Derivar la plataforma desde la consola elegida. El <select name="platform">
+        // del modal está oculto y siempre manda 'PS4', así que acá lo normalizamos
+        // según type_console para no guardar todo en PS4.
+        $data['platform'] = match (strtoupper($data['type_console'])) {
+            'NINTENDO'    => 'SWITCH',
+            'XBOX'        => 'XBOX_ONE',
+            'STEAM'       => 'STEAM',
+            'PLAYSTATION' => 'PS4',
+            default       => $data['platform'],
+        };
 
         DB::transaction(function () use ($data, $isDual, $accountType) {
             $account = Account::create([

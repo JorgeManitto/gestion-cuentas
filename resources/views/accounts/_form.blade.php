@@ -218,7 +218,7 @@
                        placeholder="USA, BRASIL, TURKIA…" required
                        class="fld-input fld-mono"> --}}
                 <select name="region" id="region" class="fld-select">
-                    @foreach (['HONG KONG','BRASIL','USA','ESPAÑA','UK','TURQUIA','INDIA','ARG','CAN','UCRANIA','INDONESIA'] as $r)
+                    @foreach (config('regions.list') as $r)
                         <option value="{{ $r }}"  @selected(old('region', $account->region) === $r)>{{ $r }}</option>
                     @endforeach
                 </select>
@@ -294,13 +294,13 @@
                 <div>
                     <label class="fld-label">Creación</label>
                     <input type="date" name="created_date"
-                           value="{{ old('created_date', $account->created_date?->format('Y-m-d')) }}"
+                           value="{{ old('created_date', ($account->created_date?->format('Y-m-d')) ?? ($account->exists ? null : now()->format('Y-m-d'))) }}"
                            class="fld-input">
                 </div>
                 <div>
                     <label class="fld-label">Compra</label>
                     <input type="date" name="purchased_date"
-                           value="{{ old('purchased_date', $account->purchased_date?->format('Y-m-d')) }}"
+                           value="{{ old('purchased_date', ($account->purchased_date?->format('Y-m-d')) ?? ($account->exists ? null : now()->format('Y-m-d'))) }}"
                            class="fld-input">
                 </div>
                 <div>

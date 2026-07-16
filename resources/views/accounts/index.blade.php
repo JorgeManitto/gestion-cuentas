@@ -18,21 +18,43 @@
     </div>
 </div>
 
-{{-- Stats --}}
+{{-- Stats (clickeables: aplican el filtro de status) --}}
+@php
+    $currentStatus = request('status');
+    $statCards = [
+        ['key' => 'total',   'label' => 'Total',      'color' => 'zinc',    'status' => null,      'ring' => 'ring-zinc-400 border-zinc-400'],
+        ['key' => 'active',  'label' => 'Activas',    'color' => 'emerald', 'status' => 'active',  'ring' => 'ring-emerald-400 border-emerald-400'],
+        ['key' => 'disabled', 'label' => 'Deshabilitadas', 'color' => 'red',     'status' => 'disabled', 'ring' => 'ring-red-400 border-red-400'],
+        ['key' => 'resettable', 'label' => 'Reseteables', 'color' => 'amber', 'ring' => 'ring-amber-400 border-amber-400',
+         'href' => route('stock.resettable', array_filter([
+             'search'  => request('search'),
+             'game_id' => request('game_id'),
+         ]))],
+    ];
+@endphp
 <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-    @foreach ([
-        'total'    => ['Total',     'zinc'],
-        'active'   => ['Activas',   'emerald'],
-        'blocked'  => ['Bloqueadas','red'],
-        // 'archived' => ['Archivadas','zinc'],
-    ] as $key => [$label, $color])
-        <div class="rounded-lg border border-zinc-200 bg-white p-4">
+    @foreach ($statCards as $card)
+        @php
+            $hasHref  = isset($card['href']);
+            $isActive = ! $hasHref && (string) $currentStatus === (string) ($card['status'] ?? '');
+            $url      = $hasHref ? $card['href'] : request()->fullUrlWithQuery(['status' => $card['status'], 'page' => null]);
+        @endphp
+        <a href="{{ $url }}"
+           class="group block rounded-lg border bg-white p-4 transition hover:shadow-sm
+                  {{ $isActive ? 'ring-2 '.$card['ring'] : 'border-zinc-200 hover:border-zinc-300' }}">
             <div class="flex items-center justify-between">
-                <span class="text-xs font-medium uppercase tracking-wide text-zinc-500">{{ $label }}</span>
-                <span class="h-2 w-2 rounded-full bg-{{ $color }}-500"></span>
+                <span class="flex items-center gap-1 text-xs font-medium uppercase tracking-wide {{ $isActive ? 'text-zinc-900' : 'text-zinc-500' }}">
+                    {{ $card['label'] }}
+                    @if ($hasHref)
+                        <svg class="h-3 w-3 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M7 17 17 7M9 7h8v8" />
+                        </svg>
+                    @endif
+                </span>
+                <span class="h-2 w-2 rounded-full bg-{{ $card['color'] }}-500"></span>
             </div>
-            <div class="mt-2 font-mono text-2xl font-semibold">{{ number_format($stats[$key]) }}</div>
-        </div>
+            <div class="mt-2 font-mono text-2xl font-semibold">{{ number_format($stats[$card['key']]) }}</div>
+        </a>
     @endforeach
 </div>
 
@@ -58,16 +80,49 @@
                 </div>
             </div>
 
-            {{-- Plataforma --}}
+            {{-- Plataforma (múltiple) --}}
+            @php
+                $selPlatforms = array_values(array_filter((array) request('platform', []), fn ($v) => $v !== ''));
+                $platLabel = match (true) {
+                    count($selPlatforms) === 0 => 'Todas',
+                    count($selPlatforms) === 1 => $selPlatforms[0],
+                    default                    => count($selPlatforms) . ' seleccionadas',
+                };
+            @endphp
             <div>
                 <label class="mb-1.5 block text-xs font-medium text-zinc-600">Plataforma</label>
+                <details class="platform-filter relative">
+                    <summary class="flex cursor-pointer list-none items-center justify-between rounded-lg border border-zinc-300 bg-zinc-50 py-2 pl-3 pr-9 text-sm transition focus:border-zinc-900 focus:bg-white [&::-webkit-details-marker]:hidden">
+                        <span data-platform-summary class="truncate {{ count($selPlatforms) ? 'text-zinc-900' : 'text-zinc-500' }}">{{ $platLabel }}</span>
+                        <span class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-zinc-400">
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
+                            </svg>
+                        </span>
+                    </summary>
+                    <div class="absolute left-0 top-full z-20 mt-1 max-h-60 w-full min-w-[10rem] overflow-auto rounded-lg border border-zinc-200 bg-white p-1.5 shadow-lg">
+                        @foreach ($platforms as $p)
+                            <label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-zinc-50">
+                                <input type="checkbox" name="platform[]" value="{{ $p }}"
+                                       @checked(in_array($p, $selPlatforms))
+                                       class="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900">
+                                <span class="font-mono text-xs">{{ $p }}</span>
+                            </label>
+                        @endforeach
+                    </div>
+                </details>
+            </div>
+
+            {{-- Consola (type_console) --}}
+            <div>
+                <label class="mb-1.5 block text-xs font-medium text-zinc-600">Consola</label>
                 <div class="relative">
-                    <select name="platform"
+                    <select name="type_console"
                             class="w-full appearance-none rounded-lg border-zinc-300 bg-zinc-50 py-2 pl-3 pr-9 text-sm
                                    transition focus:border-zinc-900 focus:bg-white focus:ring-1 focus:ring-zinc-900">
                         <option value="">Todas</option>
-                        @foreach ($platforms as $p)
-                            <option value="{{ $p }}" @selected(request('platform') === $p)>{{ $p }}</option>
+                        @foreach ($typeConsoles as $tc)
+                            <option value="{{ $tc }}" @selected(request('type_console') === $tc)>{{ $tc }}</option>
                         @endforeach
                     </select>
                     <span class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-zinc-400">
@@ -163,6 +218,7 @@
                             class="w-full appearance-none rounded-lg border-zinc-300 bg-zinc-50 py-2 pl-3 pr-9 text-sm
                                    transition focus:border-zinc-900 focus:bg-white focus:ring-1 focus:ring-zinc-900">
                         <option value="">Todos</option>
+                        <option value="disabled" @selected(request('status') === 'disabled')>Deshabilitadas (todas)</option>
                         @foreach (['active', 'blocked', 'reset', 'archived'] as $s)
                             <option value="{{ $s }}" @selected(request('status') === $s)>{{ ucfirst($s) }}</option>
                         @endforeach
@@ -195,7 +251,7 @@
                 Filtrar
             </button>
 
-            @if (request()->hasAny(['search', 'platform', 'region', 'type', 'status', 'is_dual', 'few_keys']))
+            @if (request()->hasAny(['search', 'platform', 'type_console', 'region', 'type', 'status', 'is_dual', 'few_keys']))
                 <a href="{{ route('accounts.index') }}"
                    class="inline-flex items-center rounded-lg border border-zinc-200 px-3 py-2 text-sm
                           text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900">
@@ -370,6 +426,33 @@
 </div>
 
 <script>
+    // --- Filtro múltiple de plataforma ---
+    (function () {
+        const details = document.querySelector('details.platform-filter');
+        if (!details) return;
+
+        const summary = details.querySelector('[data-platform-summary]');
+
+        const refresh = () => {
+            const checked = details.querySelectorAll('input[name="platform[]"]:checked');
+            const n = checked.length;
+            summary.textContent = n === 0 ? 'Todas'
+                                 : n === 1 ? checked[0].value
+                                 : n + ' seleccionadas';
+            summary.classList.toggle('text-zinc-900', n > 0);
+            summary.classList.toggle('text-zinc-500', n === 0);
+        };
+
+        details.addEventListener('change', (e) => {
+            if (e.target.matches('input[name="platform[]"]')) refresh();
+        });
+
+        // Cerrar al hacer click fuera.
+        document.addEventListener('click', (e) => {
+            if (details.open && !details.contains(e.target)) details.open = false;
+        });
+    })();
+
     document.addEventListener('change', function (e) {
         const input = e.target.closest('input[data-purchased-date]');
         if (!input) return;

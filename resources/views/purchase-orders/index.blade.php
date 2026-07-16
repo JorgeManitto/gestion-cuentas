@@ -369,6 +369,42 @@ document.querySelector('#modal-create-po form').addEventListener('submit', (e) =
         document.getElementById('modal-preview').showModal();
     }
 
+    // Copia el texto de un elemento al portapapeles y da feedback visual.
+    async function copyField(btn, id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const txt = el.textContent.trim();
+        if (!txt || txt === '—') return;
+        try {
+            await navigator.clipboard.writeText(txt);
+        } catch (e) {
+            const ta = document.createElement('textarea');
+            ta.value = txt; document.body.appendChild(ta); ta.select();
+            document.execCommand('copy'); ta.remove();
+        }
+        const old = btn.innerHTML;
+        btn.innerHTML = '<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>';
+        btn.classList.add('text-emerald-600');
+        setTimeout(() => { btn.innerHTML = old; btn.classList.remove('text-emerald-600'); }, 1200);
+    }
+
+    // Pinta un badge con texto + clases de color; lo oculta si no hay valor.
+    // Guarda las clases base la 1ª vez y resetea en cada apertura para no
+    // acumular colores de la cuenta anterior.
+    function setBadge(id, text, classes) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (el.dataset.baseClass === undefined) {
+            el.dataset.baseClass = el.className
+                .replace(/\bhidden\b/, '').replace(/\binline-flex\b/, '').trim();
+        }
+        el.className = el.dataset.baseClass;
+        if (!text) { el.classList.add('hidden'); return; }
+        el.classList.add('inline-flex');
+        if (classes) el.classList.add(...classes.split(/\s+/));
+        el.textContent = text;
+    }
+
     function openStockDetail(acc) {
         const set = (id, val) => {
             const el = document.getElementById(id);
@@ -380,15 +416,50 @@ document.querySelector('#modal-create-po form').addEventListener('submit', (e) =
         set('sd-platform',      acc.platform);
         set('sd-console',       acc.type_console);
         set('sd-region',        acc.region);
-        set('sd-type',          acc.account_type);
-        set('sd-dual',          acc.is_dual ? 'Sí' : 'No');
-        set('sd-status',        acc.status);
         set('sd-gamer-tag',     acc.gamer_tag);
         set('sd-birth',         acc.birth_date);
         set('sd-mail-email',    acc.mail_email);
         set('sd-mail-password', acc.mail_password);
         set('sd-purchased',     acc.purchased_date);
         set('sd-notes',         acc.notes);
+
+        // --- Badges de cabecera (mismos colores que la tabla) ---
+        const consoleStyles = {
+            PLAYSTATION: 'bg-blue-50 text-blue-700 ring-blue-600/20',
+            XBOX:        'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
+            NINTENDO:    'bg-red-50 text-red-700 ring-red-600/20',
+            STEAM:       'bg-indigo-50 text-indigo-700 ring-indigo-600/20',
+        };
+        const typeStyles = {
+            MADRE: 'bg-violet-50 text-violet-700 ring-violet-600/20',
+            HIJA:  'bg-sky-50 text-sky-700 ring-sky-600/20',
+        };
+        const consoleKey = (acc.type_console || '').toUpperCase();
+        setBadge('sd-console-badge', acc.type_console || null,
+                 consoleStyles[consoleKey] || 'bg-zinc-100 text-zinc-600 ring-zinc-500/20');
+
+        const isActive = acc.status === 'active';
+        setBadge('sd-status-badge', acc.status || null,
+                 isActive ? 'bg-emerald-50 text-emerald-700 ring-emerald-600/20'
+                          : 'bg-zinc-100 text-zinc-600 ring-zinc-500/20');
+
+        setBadge('sd-type-badge', acc.account_type || 'INDEPENDIENTE',
+                 typeStyles[(acc.account_type || '').toUpperCase()] || 'bg-zinc-100 text-zinc-600 ring-zinc-500/20');
+
+        // Badge DUAL: solo si aplica.
+        const dualBadge = document.getElementById('sd-dual-badge');
+        if (dualBadge) {
+            dualBadge.classList.toggle('hidden', !acc.is_dual);
+            dualBadge.classList.toggle('inline-flex', !!acc.is_dual);
+        }
+
+        // Sección de notas: ocultar si no hay notas.
+        const notesSection = document.getElementById('sd-notes-section');
+        if (notesSection) notesSection.classList.toggle('hidden', !(acc.notes && acc.notes.trim()));
+
+        // Enlace de edición.
+        const editLink = document.getElementById('sd-edit-link');
+        if (editLink && acc.id) editLink.href = `/accounts/${acc.id}/edit`;
 
         // Llaves
         const wrap  = document.getElementById('sd-keys');

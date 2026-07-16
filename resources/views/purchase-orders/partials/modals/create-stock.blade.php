@@ -41,7 +41,7 @@
             <div>
                 <label class="fld-label">Región <span class="text-red-500">*</span></label>
                 <select name="region" class="fld-select" required>
-                    @foreach (['HONG KONG','BRASIL','USA','ESPAÑA','UK','TURQUIA','INDIA','ARG','CAN','UCRANIA','INDONESIA'] as $r)
+                    @foreach (config('regions.list') as $r)
                         <option value="{{ $r }}">{{ $r }}</option>
                     @endforeach
                 </select>

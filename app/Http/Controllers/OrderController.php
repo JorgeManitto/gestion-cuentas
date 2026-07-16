@@ -1220,5 +1220,54 @@ class OrderController extends Controller
         }
     }
 
+    /**
+     * POST /items/{item}/resend-delivery
+     * Reenvía el/los correo(s) de entrega con las credenciales y la llave YA
+     * asignadas. No reasigna ni cambia nada: reutiliza la cuenta y la llave que
+     * el ítem ya tiene. Sirve para reenviar al cliente si perdió el correo.
+     */
+    public function resendDelivery(Request $request, OrderItem $item)
+    {
+        $item->loadMissing(['order', 'account', 'assignment', 'secondaryAssignments.account']);
 
+        $fail = function (string $msg) use ($request) {
+            return $request->expectsJson()
+                ? response()->json(['success' => false, 'message' => $msg], 422)
+                : back()->withErrors(['resend' => $msg]);
+        };
+
+        if (! $item->order?->customer_email) {
+            return $fail('La orden no tiene email de cliente.');
+        }
+
+        if ($item->is_pack) {
+            // Pack: un correo por cada cuenta secundaria entregada.
+            $sent = 0;
+            foreach ($item->secondaryAssignments as $sa) {
+                if ($sa->account) {
+                    $this->sendSecondaryDeliveryEmail($item, $sa);
+                    $sent++;
+                }
+            }
+
+            if ($sent === 0) {
+                return $fail('Este pack todavía no tiene cuentas asignadas para reenviar.');
+            }
+
+            $msg = "Reenviado: {$sent} correo(s) del pack a {$item->order->customer_email}.";
+        } else {
+            if (! $item->account) {
+                return $fail('Este ítem todavía no tiene una cuenta asignada.');
+            }
+
+            $this->sendDeliveryEmail($item);
+            $msg = "Credenciales reenviadas a {$item->order->customer_email}.";
+        }
+
+        Log::info("Reenvío manual de entrega · item {$item->id} · {$item->order->customer_email}");
+
+        return $request->expectsJson()
+            ? response()->json(['success' => true, 'message' => $msg])
+            : back()->with('success', $msg);
+    }
 }

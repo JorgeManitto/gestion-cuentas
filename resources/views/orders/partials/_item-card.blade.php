@@ -484,6 +484,18 @@
                     <div class="text-xs text-zinc-500">
                         Entregada por <span class="font-medium">{{ $item->who_delivered ?? '—' }}</span>
                     </div>
+
+                    <div>
+                        <button type="button"
+                                data-resend-delivery
+                                data-url="{{ route('items.resend-delivery', $item) }}"
+                                class="inline-flex items-center gap-1.5 rounded-md bg-zinc-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800">
+                            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 0 0 2.22 0L21 8M5 19h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2z"/>
+                            </svg>
+                            Reenviar credenciales del pack
+                        </button>
+                    </div>
                 </div>
 
             @else
@@ -527,6 +539,18 @@
 
                 <div class="mt-3 text-xs text-zinc-500">
                     Entregada por <span class="font-medium">{{ $item->who_delivered ?? '—' }}</span>
+                </div>
+
+                <div class="mt-3">
+                    <button type="button"
+                            data-resend-delivery
+                            data-url="{{ route('items.resend-delivery', $item) }}"
+                            class="inline-flex items-center gap-1.5 rounded-md bg-zinc-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800">
+                        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 0 0 2.22 0L21 8M5 19h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2z"/>
+                        </svg>
+                        Reenviar credenciales y llave
+                    </button>
                 </div>
             @endif
 

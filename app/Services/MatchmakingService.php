@@ -278,9 +278,9 @@ class MatchmakingService
         if ($sameGame === 0) {
             $anyGame = Account::where('game_id', $item->game_id)->count();
             if ($anyGame === 0) {
-                return "No tenemos ninguna cuenta de '{$item->game->canonical_name}' en el inventario";
+                return "No tenemos ninguna cuenta de '{$item->game->displayName()}' en el inventario";
             }
-            return "Las cuentas de '{$item->game->canonical_name}' están todas en estado bloqueado o archivado";
+            return "Las cuentas de '{$item->game->displayName()}' están todas en estado bloqueado o archivado";
         }
 
         $platformList = implode(', ', $platforms);
@@ -288,7 +288,7 @@ class MatchmakingService
             $platformList .= ' (ni duales)';
         }
 
-        return "Hay $sameGame cuenta(s) de '{$item->game->canonical_name}' pero ninguna en plataforma [$platformList]";
+        return "Hay $sameGame cuenta(s) de '{$item->game->displayName()}' pero ninguna en plataforma [$platformList]";
     }
 
     /**

@@ -47,10 +47,16 @@
             <label class="fld-label">Región <span class="text-zinc-400 font-normal">(opcional)</span></label>
             <select name="region" class="fld-select">
                 <option value="">—</option>
-                @foreach (['HONG KONG','BRASIL','USA','ESPAÑA','UK','TURQUIA','INDIA','ARG','CAN', 'UCRANIA', 'INDONESIA' ] as $r)
+                @foreach (config('regions.list') as $r)
                     <option value="{{ $r }}">{{ $r }}</option>
                 @endforeach
             </select>
+        </div>
+
+        <div>
+            <label class="fld-label">Nota <span class="text-zinc-400 font-normal">(opcional)</span></label>
+            <textarea name="notes_region" rows="2" class="fld-textarea"
+                      placeholder="Nota que aparece debajo de la región"></textarea>
         </div>
 
         <div>

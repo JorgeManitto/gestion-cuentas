@@ -148,9 +148,11 @@ class MailPreviewController extends Controller
     /** Mismo criterio que AccountDeliveryMail::content() para elegir template. */
     private function viewFor(string $generalPlatform): string
     {
-        return $generalPlatform === 'playstation'
-            ? 'emails.account-delivery-playstation'
-            : 'emails.account-delivery';
+        return match ($generalPlatform) {
+            'playstation' => 'emails.account-delivery-playstation',
+            'nintendo'    => 'emails.account-delivery-nintendo',
+            default       => 'emails.account-delivery',
+        };
     }
 
     private function normalizeVariant(?string $variant): string

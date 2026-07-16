@@ -41,6 +41,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/orders/{order}/add-item', [OrderController::class, 'addItem'])->name('orders.add-item');
     Route::delete('/order-items/{item}', [OrderController::class, 'destroyItem'])->name('order-items.destroy');
     Route::post('/items/{item}/notify-game-change', [OrderController::class, 'notifyGameChange'])->name('items.notify-game-change');
+    Route::post('/items/{item}/resend-delivery', [OrderController::class, 'resendDelivery'])->name('items.resend-delivery');
 
     Route::get('items/{item}/secondary-candidates', [OrderController::class, 'secondaryCandidates'])
         ->name('items.secondary-candidates');

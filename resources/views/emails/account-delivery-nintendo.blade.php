@@ -14,11 +14,11 @@
         <table role="presentation" width="620" cellpadding="0" cellspacing="0"
                style="width:100%;max-width:620px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.08);">
 
-          {{-- ══════════════ HEADER (PlayStation) ══════════════ --}}
+          {{-- ══════════════ HEADER (Nintendo) ══════════════ --}}
           <tr>
             <td style="background:#0b0b12;padding:22px 28px 24px 28px;">
 
-              {{-- Marca (logo) + logo PlayStation --}}
+              {{-- Marca (logo) + logo Nintendo --}}
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="vertical-align:middle;">
@@ -26,8 +26,8 @@
                          width="72" alt="PlayXDigital" style="display:block;border:0;outline:none;">
                   </td>
                   <td align="right" style="vertical-align:middle;">
-                    <img src="{{ $message->embed(public_path('emails/logo-playstation.png')) }}"
-                         width="64" alt="PlayStation" style="display:block;border:0;outline:none;">
+                    <img src="{{ $message->embed(public_path('emails/logo-nintendo.png')) }}"
+                         width="64" alt="Nintendo" style="display:block;border:0;outline:none;">
                   </td>
                 </tr>
               </table>
@@ -190,9 +190,11 @@
                   <td style="vertical-align:middle;">
                     <span style="font-size:12px;color:#6b7280;">© PlayXDigital</span>
                   </td>
-                  <td align="right" style="vertical-align:middle;">
-                    <img src="{{ $message->embed(public_path('emails/bg-joystick.png')) }}"
-                         width="120" alt="" style="display:block;border:0;outline:none;">
+                  <td align="right" style="vertical-align:bottom;white-space:nowrap;">
+                    <img src="{{ $message->embed(public_path('emails/bg-joystick-nintendo-1.png')) }}"
+                         width="40" alt="" style="display:inline-block;border:0;outline:none;vertical-align:bottom;">
+                    <img src="{{ $message->embed(public_path('emails/bg-joystick-nintendo-2.png')) }}"
+                         width="24" alt="" style="display:inline-block;border:0;outline:none;vertical-align:bottom;margin-left:2px;">
                   </td>
                 </tr>
               </table>

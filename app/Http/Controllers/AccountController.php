@@ -37,49 +37,81 @@ class AccountController extends Controller
         $sort      = array_key_exists($request->input('sort'), $sortable) ? $request->input('sort') : 'created_at';
         $direction = strtolower($request->input('direction')) === 'asc' ? 'asc' : 'desc';
 
-        $accounts = Account::query()
-            ->with(['game.products', 'assignments'])
-            // Por defecto: solo cuentas con juego válido (comportamiento actual).
-            // Con ?orphan=1: invertimos y mostramos las que NO tienen juego (game_id roto/null).
-            ->when(! $orphan, fn ($q) => $q->whereHas('game'))
-            ->when($orphan,   fn ($q) => $q->whereDoesntHave('game'))
-            ->withCount(['assignments as active_assignments_count' => fn ($q) => $q->where('status', 'active')])
-            ->withCount('keys')
-            ->when($request->filled('game_id'),  fn ($q) => $q->where('game_id', $request->game_id))
-            ->when($request->filled('platform'), fn ($q) => $q->where('platform', $request->platform))
-            ->when($request->filled('is_dual'), fn ($q) => $q->where('is_dual', $request->boolean('is_dual')))
-            ->when($request->filled('region'),   fn ($q) => $q->where('region', $request->region))
-            ->when($request->filled('status'),   fn ($q) => $q->where('status', $request->status))
-            ->when($request->filled('type'),     fn ($q) => $q->where('account_type', $request->type))
-            ->when($request->boolean('few_keys'), fn ($q) => $q->has('keys', '<', 2))
-            ->when($request->filled('search'), function ($q) use ($request) {
-                $s = $request->search;
-                $q->where(function ($q) use ($s) {
-                    $q->where('email', 'like', "%$s%")
-                    ->orWhere('gamer_tag', 'like', "%$s%")
-                    ->orWhere('mail_email', 'like', "%$s%")
-                    ->orWhereHas('game', function ($q) use ($s) {
-                        $q->where('canonical_name', 'like', "%$s%")
-                            ->orWhereHas('products', fn ($q) => $q->where('name', 'like', "%$s%"));
+        // Filtros compartidos (TODOS menos `status`): así los stats de status
+        // funcionan como facetas del mismo conjunto filtrado. Devuelve una query
+        // nueva cada vez que se invoca para poder contar sin efectos colaterales.
+        $filtered = function () use ($request, $orphan) {
+            return Account::query()
+                // Por defecto: solo cuentas con juego válido (comportamiento actual).
+                // Con ?orphan=1: invertimos y mostramos las que NO tienen juego (game_id roto/null).
+                ->when(! $orphan, fn ($q) => $q->whereHas('game'))
+                ->when($orphan,   fn ($q) => $q->whereDoesntHave('game'))
+                ->when($request->filled('game_id'),  fn ($q) => $q->where('game_id', $request->game_id))
+                ->when($request->filled('platform'), function ($q) use ($request) {
+                    // El filtro de plataforma ahora es múltiple (platform[]=PS4&platform[]=PS5).
+                    // Aceptamos también el valor simple por compatibilidad con enlaces viejos.
+                    $vals = array_filter((array) $request->input('platform'), fn ($v) => $v !== '' && $v !== null);
+                    if ($vals) {
+                        $q->whereIn('platform', $vals);
+                    }
+                })
+                ->when($request->filled('type_console'), fn ($q) => $q->where('type_console', $request->type_console))
+                ->when($request->filled('is_dual'), fn ($q) => $q->where('is_dual', $request->boolean('is_dual')))
+                ->when($request->filled('region'),   fn ($q) => $q->where('region', $request->region))
+                ->when($request->filled('type'),     fn ($q) => $q->where('account_type', $request->type))
+                ->when($request->boolean('few_keys'), fn ($q) => $q->has('keys', '<', 2))
+                ->when($request->filled('search'), function ($q) use ($request) {
+                    $s = $request->search;
+                    $q->where(function ($q) use ($s) {
+                        $q->where('email', 'like', "%$s%")
+                        ->orWhere('gamer_tag', 'like', "%$s%")
+                        ->orWhere('mail_email', 'like', "%$s%")
+                        ->orWhereHas('game', function ($q) use ($s) {
+                            $q->where('canonical_name', 'like', "%$s%")
+                                ->orWhereHas('products', fn ($q) => $q->where('name', 'like', "%$s%"));
+                        });
                     });
                 });
-            })
+        };
+
+        $accounts = $filtered()
+            ->with(['game.products', 'assignments'])
+            ->withCount(['assignments as active_assignments_count' => fn ($q) => $q->where('status', 'active')])
+            ->withCount('keys')
+            // 'disabled' es un pseudo-status: agrupa todo lo que NO es active
+            // (blocked, reset, archived) = mismo criterio que Account::isDisabled().
+            ->when($request->filled('status'), fn ($q) => $request->status === 'disabled'
+                ? $q->where('status', '!=', 'active')
+                : $q->where('status', $request->status))
             ->orderBy($sortable[$sort], $direction)
             ->paginate(50)
             ->withQueryString();
 
+        // Stats: reflejan los filtros activos (menos el propio status).
         $stats = [
-            'total'    => Account::count(),
-            'active'   => Account::where('status', 'active')->count(),
-            'blocked'  => Account::where('status', 'blocked')->count(),
-            'archived' => Account::where('status', 'archived')->count(),
+            'total'    => $filtered()->count(),
+            'active'   => $filtered()->where('status', 'active')->count(),
+            // Deshabilitadas: cualquier status != active (Account::isDisabled()).
+            'disabled' => $filtered()->where('status', '!=', 'active')->count(),
+            'blocked'  => $filtered()->where('status', 'blocked')->count(),
+            'archived' => $filtered()->where('status', 'archived')->count(),
+            // Cuentas reseteables: mismo criterio que /stock/reseteables
+            // (pre-filtro SQL + chequeo PHP de capacidad/ventana temporal), acotado
+            // al conjunto filtrado actual.
+            'resettable' => $filtered()
+                ->resettableCandidates()
+                ->with('assignments')
+                ->get()
+                ->filter(fn (Account $a) => $a->isResettableStock())
+                ->count(),
         ];
 
         // Para los filtros: opciones distintas que ya hay en la base
-        $platforms = Account::query()->select('platform')->distinct()->orderBy('platform')->pluck('platform');
-        $regions   = Account::query()->select('region')->distinct()->orderBy('region')->pluck('region');
+        $platforms    = Account::query()->select('platform')->distinct()->orderBy('platform')->pluck('platform')->filter()->values();
+        $regions      = Account::query()->select('region')->distinct()->orderBy('region')->pluck('region');
+        $typeConsoles = Account::query()->select('type_console')->whereNotNull('type_console')->where('type_console', '!=', '')->distinct()->orderBy('type_console')->pluck('type_console');
 
-        return view('accounts.index', compact('accounts', 'stats', 'platforms', 'regions', 'orphan'));
+        return view('accounts.index', compact('accounts', 'stats', 'platforms', 'regions', 'typeConsoles', 'orphan'));
     }
 
     /**

@@ -19,7 +19,8 @@ class ImportNintendoCsv extends Command
         {--keys= : Ruta a activation_keys_rows.csv (default: Downloads)}
         {--games= : Ruta a games_rows.csv, SOLO para mapear (default: Downloads)}
         {--dry-run : No escribe nada; imprime resumen y reporte}
-        {--fresh : Borra SOLO cuentas SWITCH/SWITCH_2 (y sus keys/assignments) antes de importar}';
+        {--fresh : Borra SOLO cuentas SWITCH/SWITCH_2 (y sus keys/assignments) antes de importar}
+        {--skip-existing : Aditivo: importa SOLO cuentas cuyo email no exista ya en Nintendo. No borra ni modifica nada. Incompatible con --fresh}';
 
     protected $description = 'Importa cuentas Nintendo desde los CSV de Supabase. Explota games[] en una cuenta por juego, mapea a juegos existentes (NO crea juegos) e importa las entregas como account_assignments.';
 
@@ -50,6 +51,12 @@ class ImportNintendoCsv extends Command
         }
 
         $dry = (bool) $this->option('dry-run');
+        $skipExisting = (bool) $this->option('skip-existing');
+
+        if ($skipExisting && $this->option('fresh')) {
+            $this->error('--skip-existing y --fresh son incompatibles: uno agrega sin borrar, el otro borra todo Nintendo. Elegí uno.');
+            return self::FAILURE;
+        }
 
         // ─────────── Cargar CSVs ───────────
         $accounts = $this->readCsv($accountsPath);
@@ -71,6 +78,17 @@ class ImportNintendoCsv extends Command
         $this->line('  cuentas:          ' . count($accounts));
         $this->line('  activation_keys:  ' . count($keys));
         $this->line('  games (catálogo):  ' . count($games));
+
+        // --skip-existing: emails Nintendo que YA están en la BD → esas cuentas no se re-importan.
+        $existingEmails = [];
+        if ($skipExisting) {
+            $existingEmails = Account::whereIn('platform', self::NINTENDO_DB_PLATFORMS)
+                ->pluck('email')
+                ->mapWithKeys(fn ($e) => [mb_strtolower(trim((string) $e)) => true])
+                ->all();
+            $this->line('  modo --skip-existing: ' . count($existingEmails) . ' cuentas Nintendo ya en BD se saltearán');
+        }
+        $skippedAcctUuids = [];   // uuids de cuentas salteadas (para no contar sus assignments como huérfanas)
         $this->newLine();
 
         // ─────────── Plan de cuentas (una fila por juego) ───────────
@@ -85,6 +103,8 @@ class ImportNintendoCsv extends Command
             'game_null'           => 0,   // filas de cuenta sin juego (no resuelto o games=[])
             'sin_juego_alguno'    => 0,   // cuentas cuyo games[] estaba vacío
             'dup_colapsados'      => 0,   // UUIDs de games[] que colapsaron al mismo juego local
+            'skipped_existing_accounts'    => 0,   // cuentas salteadas por --skip-existing
+            'skipped_existing_assignments' => 0,   // assignments de cuentas salteadas
         ];
 
         // Entregas por cuenta de origen → para marcar used_at en el pool.
@@ -104,6 +124,14 @@ class ImportNintendoCsv extends Command
 
         foreach ($accounts as $a) {
             $acctUuid = $a['id'] ?? '';
+
+            // --skip-existing: si el email ya está en Nintendo, no se toca esa cuenta.
+            if ($skipExisting && isset($existingEmails[mb_strtolower(trim((string) ($a['email'] ?? '')))])) {
+                $stats['skipped_existing_accounts']++;
+                $skippedAcctUuids[$acctUuid] = true;
+                continue;
+            }
+
             $fields   = $this->mapAccountFields($a);
             $poolKeys = $this->decodeArray($a['activation_keys'] ?? '');
             $gameUuids = $this->decodeArray($a['games'] ?? '');
@@ -178,7 +206,11 @@ class ImportNintendoCsv extends Command
             $gu = trim((string) ($k['game_id'] ?? ''));
             $target = $pairIndex[$au . '|' . $gu] ?? ($firstByAcct[$au] ?? null);
             if ($target === null) {
-                $stats['assignments_orphan']++;
+                if (isset($skippedAcctUuids[$au])) {
+                    $stats['skipped_existing_assignments']++;   // pertenece a una cuenta ya existente (no re-importada)
+                } else {
+                    $stats['assignments_orphan']++;
+                }
             } else {
                 $stats['assignments']++;
             }
@@ -462,8 +494,14 @@ class ImportNintendoCsv extends Command
 
     private function printSummary(array $stats): void
     {
-        $this->table(['Métrica', 'Valor'], [
+        $rows = [
             ['cuentas en el CSV',              $stats['cuentas_origen']],
+        ];
+        if ($stats['skipped_existing_accounts'] > 0 || $stats['skipped_existing_assignments'] > 0) {
+            $rows[] = ['cuentas SALTEADAS (ya existían)', $stats['skipped_existing_accounts']];
+            $rows[] = ['  · sus assignments salteados',   $stats['skipped_existing_assignments']];
+        }
+        $rows = array_merge($rows, [
             ['accounts a crear (por juego)',   $stats['accounts_creadas']],
             ['  · de esas, sin juego (null)',  $stats['game_null']],
             ['  · cuentas con games[] vacío',  $stats['sin_juego_alguno']],
@@ -473,5 +511,6 @@ class ImportNintendoCsv extends Command
             ['assignments huérfanas',          $stats['assignments_orphan']],
             ['juegos NO resueltos (únicos)',   count($this->unresolvedGames)],
         ]);
+        $this->table(['Métrica', 'Valor'], $rows);
     }
 }
